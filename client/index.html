@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0B1F14" />
+    <meta
+      name="description"
+      content="Springbok Rush — SA white-label slot demo (ZAR, free-play only, 18+)"
+    />
+    <title>Springbok Rush · SA Slot Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05140c;
+        --green: #007a4d;
+        --gold: #ffb612;
+        --red: #de3831;
+        --panel: rgba(8, 28, 18, 0.92);
+        --text: #f4fff8;
+        --muted: #9cb8a8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: radial-gradient(ellipse at top, #0f2e1c 0%, var(--bg) 55%);
+        color: var(--text);
+        font-family: Inter, system-ui, sans-serif;
+        overflow: hidden;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #app {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        max-width: 480px;
+        margin: 0 auto;
+        position: relative;
+      }
+      #banner {
+        flex: 0 0 auto;
+        background: linear-gradient(90deg, #5c1010, #8a1f12);
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-align: center;
+        padding: 6px 10px;
+        z-index: 20;
+      }
+      #game-root {
+        flex: 1 1 auto;
+        position: relative;
+        min-height: 0;
+      }
+      #game-root canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #hud {
+        flex: 0 0 auto;
+        background: var(--panel);
+        border-top: 1px solid rgba(255, 182, 18, 0.25);
+        padding: 10px 12px 14px;
+        z-index: 10;
+      }
+      .meters {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .meter {
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 8px 10px;
+        text-align: center;
+      }
+      .meter label {
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 2px;
+      }
+      .meter strong {
+        font-family: Rajdhani, sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--gold);
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 10px;
+        align-items: center;
+      }
+      .bet-ctrl {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .bet-ctrl button,
+      .icon-btn,
+      .chip {
+        appearance: none;
+        border: 1px solid rgba(255, 182, 18, 0.35);
+        background: rgba(0, 122, 77, 0.25);
+        color: var(--text);
+        border-radius: 999px;
+        min-width: 36px;
+        min-height: 36px;
+        font-weight: 700;
+        font-family: Rajdhani, sans-serif;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .bet-ctrl button:active,
+      .icon-btn:active,
+      .chip:active,
+      #spin-btn:active {
+        transform: scale(0.96);
+      }
+      .bet-value {
+        font-family: Rajdhani, sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        min-width: 72px;
+        text-align: center;
+      }
+      #spin-btn {
+        appearance: none;
+        border: none;
+        height: 64px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ffd34d 0%, #e0a000 55%, #b87a00 100%);
+        color: #1a1200;
+        font-family: Rajdhani, sans-serif;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        box-shadow: 0 8px 0 #6b4a00, 0 12px 24px rgba(0, 0, 0, 0.4);
+        cursor: pointer;
+      }
+      #spin-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      #spin-btn.free {
+        background: linear-gradient(180deg, #5ee0a0 0%, #007a4d 60%, #045a39 100%);
+        color: #fff;
+        box-shadow: 0 8px 0 #033d27, 0 12px 24px rgba(0, 0, 0, 0.4);
+      }
+      .side-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+        justify-content: center;
+      }
+      .chip {
+        font-size: 12px;
+        padding: 0 12px;
+        min-height: 32px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+      .chip.active {
+        background: rgba(0, 122, 77, 0.55);
+        border-color: var(--gold);
+        color: var(--gold);
+      }
+      #footer {
+        flex: 0 0 auto;
+        font-size: 10px;
+        color: var(--muted);
+        text-align: center;
+        padding: 6px 10px 10px;
+        line-height: 1.4;
+      }
+      #footer a {
+        color: var(--gold);
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        z-index: 50;
+        padding: 16px;
+      }
+      .modal-backdrop.open {
+        display: flex;
+      }
+      .modal {
+        width: min(480px, 100%);
+        max-height: min(78vh, 640px);
+        overflow: auto;
+        background: #0c2216;
+        border: 1px solid rgba(255, 182, 18, 0.35);
+        border-radius: 16px 16px 12px 12px;
+        padding: 16px;
+      }
+      .modal h2 {
+        margin: 0 0 10px;
+        font-family: Rajdhani, sans-serif;
+        font-size: 24px;
+        color: var(--gold);
+      }
+      .modal p,
+      .modal li {
+        color: #d5e8db;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .modal table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .modal th,
+      .modal td {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 8px 4px;
+        text-align: left;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .field {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .field input {
+        width: 100px;
+        background: #06150d;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #fff;
+        border-radius: 8px;
+        padding: 6px 8px;
+      }
+      #toast {
+        position: absolute;
+        left: 50%;
+        top: 18%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        border: 1px solid var(--gold);
+        color: var(--gold);
+        font-family: Rajdhani, sans-serif;
+        font-size: 22px;
+        font-weight: 700;
+        padding: 10px 18px;
+        border-radius: 12px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 30;
+        white-space: nowrap;
+      }
+      #toast.show {
+        opacity: 1;
+      }
+      #fs-badge {
+        display: none;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 122, 77, 0.9);
+        border: 1px solid var(--gold);
+        color: #fff;
+        font-family: Rajdhani, sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        z-index: 25;
+      }
+      #fs-badge.show {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="banner">DEMO MODE — No real money. Free-play only. 18+</div>
+      <div id="game-root">
+        <div id="fs-badge"></div>
+        <div id="toast"></div>
+      </div>
+      <div id="hud">
+        <div class="meters">
+          <div class="meter">
+            <label id="lbl-balance">Balance</label>
+            <strong id="val-balance">R0.00</strong>
+          </div>
+          <div class="meter">
+            <label id="lbl-bet">Bet</label>
+            <strong id="val-bet">R0.00</strong>
+          </div>
+          <div class="meter">
+            <label id="lbl-win">Win</label>
+            <strong id="val-win">R0.00</strong>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="bet-ctrl">
+            <button type="button" id="bet-minus" aria-label="Decrease bet">−</button>
+            <div class="bet-value" id="bet-display">R5.00</div>
+            <button type="button" id="bet-plus" aria-label="Increase bet">+</button>
+          </div>
+          <button type="button" id="spin-btn">SPIN</button>
+          <div class="side-actions">
+            <button type="button" class="icon-btn" id="btn-auto" title="Autoplay">A</button>
+            <button type="button" class="icon-btn" id="btn-turbo" title="Turbo">T</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="chip" id="btn-paytable">Paytable</button>
+          <button type="button" class="chip" id="btn-rules">Rules</button>
+          <button type="button" class="chip" id="btn-session">Session</button>
+          <button type="button" class="chip" id="btn-sound">Sound</button>
+          <button type="button" class="chip" id="btn-motion">Motion</button>
+          <button type="button" class="chip" id="btn-lang">EN | ZU</button>
+        </div>
+      </div>
+      <div id="footer">
+        <span id="footer-legal"></span>
+        ·
+        <a id="rg-link" href="https://www.responsiblegambling.org.za/" target="_blank" rel="noopener"
+          >Responsible Gambling</a
+        >
+      </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-backdrop" id="modal-paytable">
+      <div class="modal">
+        <h2 id="pt-title">Paytable</h2>
+        <div id="pt-body"></div>
+        <div class="modal-actions">
+          <button type="button" class="chip" data-close="modal-paytable">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="modal-rules">
+      <div class="modal">
+        <h2 id="rules-title">Rules</h2>
+        <p id="rules-body"></p>
+        <p id="rules-rtp"></p>
+        <div class="modal-actions">
+          <button type="button" class="chip" data-close="modal-rules">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="modal-session">
+      <div class="modal">
+        <h2 id="session-title">Session</h2>
+        <div id="session-body"></div>
+        <div class="modal-actions">
+          <button type="button" class="chip" data-close="modal-session">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop" id="modal-auto">
+      <div class="modal">
+        <h2 id="auto-title">Autoplay</h2>
+        <div class="field">
+          <label id="auto-spins-lbl" for="auto-spins">Auto spins</label>
+          <input id="auto-spins" type="number" min="1" max="100" value="10" />
+        </div>
+        <div class="field">
+          <label id="auto-win-lbl" for="auto-win-stop">Stop if single win ≥ (R)</label>
+          <input id="auto-win-stop" type="number" min="0" step="1" placeholder="optional" />
+        </div>
+        <div class="field">
+          <label id="auto-bal-lbl" for="auto-bal-stop">Stop if balance ≤ (R)</label>
+          <input id="auto-bal-stop" type="number" min="0" step="1" placeholder="optional" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="chip" data-close="modal-auto">Close</button>
+          <button type="button" class="chip active" id="auto-start">Start autoplay</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
