@@ -1,0 +1,8 @@
+{
+  "name": "Uvaan's White Label Slot",
+  "description": "Red and Black Diamond style white-label 5-reel slot game",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

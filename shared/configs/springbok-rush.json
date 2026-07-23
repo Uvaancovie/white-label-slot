@@ -1,0 +1,5 @@
+{
+  "gameId": "springbok-rush",
+  "name": "Springbok Rush",
+  "note": "Canonical runtime config is shared/src/defaultConfig.ts — this JSON is the operator-facing theme pack reference."
+}
