@@ -240,7 +240,8 @@ export class GameScene {
           await this.bigWinModal.show(
             isMega ? "MEGA WIN!" : "BIG WIN!",
             result.totalWinCents,
-            () => this.sound.coinTick()
+            () => this.sound.coinTick(),
+            isMega
           );
         } else {
           this.sound.win(false, false);

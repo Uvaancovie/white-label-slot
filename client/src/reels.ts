@@ -758,59 +758,171 @@ export class CoinBurst {
   };
 }
 
-/** Animated Big Win / Mega Win / Free Spins Modal Banner Overlay */
+/**
+ * Multi-Layer Visual Animation Effect for Big Win & Mega Win on Canvas
+ * Features rotating sunburst light rays, 3D tumbling gold coins & ruby shower,
+ * electric lightning tendrils, milestone shockwave bursts, firework sparklers,
+ * perimeter neon aura, and interactive tap-to-collect.
+ */
+interface BigWinParticle {
+  g: Graphics;
+  type: "coin" | "ruby" | "diamond" | "star" | "confetti";
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rot: number;
+  rotSpeed: number;
+  scale: number;
+  life: number;
+  bounceCount: number;
+  color: number;
+}
+
+interface FireworkSpark {
+  g: Graphics;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  alpha: number;
+  color: number;
+}
+
+interface ShockwaveRing {
+  g: Graphics;
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  alpha: number;
+  color: number;
+}
+
 export class BigWinModal {
   readonly container = new Container();
+  private w: number;
+  private h: number;
+
   private bg = new Graphics();
-  private titleText!: Text;
-  private winText!: Text;
+  private borderGlow = new Graphics();
+  private raysContainer = new Container();
+  private raysGfx = new Graphics();
+
+  private badgeContainer = new Container();
+  private badgeBg = new Graphics();
+  private lightningGfx = new Graphics();
+
+  private titleText: Text;
+  private winText: Text;
+  private tapHintText: Text;
+
+  private particleContainer = new Container();
+  private particles: BigWinParticle[] = [];
+
+  private fireworkContainer = new Container();
+  private fireworks: FireworkSpark[] = [];
+
+  private shockwaveContainer = new Container();
+  private shockwaves: ShockwaveRing[] = [];
+
   private animTimer: number | null = null;
+  private isFastForwarded = false;
+  private isMegaWinMode = false;
+  private targetCents = 0;
+  private currentCents = 0;
 
   constructor(w: number, h: number) {
-    // Dark modal veil
-    this.bg.rect(0, 0, w, h);
-    this.bg.fill({ color: 0x000000, alpha: 0.75 });
+    this.w = w;
+    this.h = h;
+
+    this.container.eventMode = "static";
+    this.container.cursor = "pointer";
+    this.container.on("pointerdown", () => {
+      this.isFastForwarded = true;
+    });
+
+    // 1. Dark Vignette Backdrop
     this.container.addChild(this.bg);
 
-    // Decorative sunburst gold badge
-    const badge = new Graphics();
-    badge.star(w / 2, h / 2 - 10, 16, 150, 110);
-    badge.fill({ color: 0xffa000, alpha: 0.3 });
-    badge.stroke({ width: 3, color: 0xffd700 });
-    this.container.addChild(badge);
+    // 2. Rotating Sunburst Light Rays
+    this.raysContainer.x = w / 2;
+    this.raysContainer.y = h / 2 - 20;
+    this.raysContainer.addChild(this.raysGfx);
+    this.container.addChild(this.raysContainer);
 
+    // 3. Shockwaves Layer
+    this.container.addChild(this.shockwaveContainer);
+
+    // 4. Fireworks Layer
+    this.container.addChild(this.fireworkContainer);
+
+    // 5. Screen Perimeter Neon Glow Border
+    this.container.addChild(this.borderGlow);
+
+    // 6. 3D Badge Shield Container
+    this.badgeContainer.x = w / 2;
+    this.badgeContainer.y = h / 2 - 20;
+
+    this.badgeContainer.addChild(this.badgeBg);
+    this.badgeContainer.addChild(this.lightningGfx);
+
+    // Title Text
     this.titleText = new Text({
       text: "BIG WIN!",
       style: {
         fontFamily: "Rajdhani, Inter, Arial, sans-serif",
-        fontSize: 42,
+        fontSize: 44,
         fontWeight: "700",
         fill: "#ffd700",
-        stroke: { color: 0x000000, width: 6 },
-        dropShadow: { alpha: 0.8, blur: 6, color: 0xff8000, distance: 4 },
+        stroke: { color: 0x000000, width: 7 },
+        dropShadow: { alpha: 0.9, blur: 8, color: 0xff4d00, distance: 4, angle: Math.PI / 4 },
         align: "center",
       },
     });
     this.titleText.anchor.set(0.5);
-    this.titleText.x = w / 2;
-    this.titleText.y = h / 2 - 30;
-    this.container.addChild(this.titleText);
+    this.titleText.y = -30;
+    this.badgeContainer.addChild(this.titleText);
 
+    // Win Counter Text
     this.winText = new Text({
       text: "R0.00",
       style: {
         fontFamily: "Rajdhani, Inter, Arial, sans-serif",
-        fontSize: 36,
+        fontSize: 38,
         fontWeight: "700",
         fill: "#ffffff",
-        stroke: { color: 0x000000, width: 4 },
+        stroke: { color: 0x000000, width: 5 },
+        dropShadow: { alpha: 0.8, blur: 6, color: 0x000000, distance: 3, angle: Math.PI / 4 },
         align: "center",
       },
     });
     this.winText.anchor.set(0.5);
-    this.winText.x = w / 2;
-    this.winText.y = h / 2 + 25;
-    this.container.addChild(this.winText);
+    this.winText.y = 28;
+    this.badgeContainer.addChild(this.winText);
+
+    this.container.addChild(this.badgeContainer);
+
+    // 7. Particle Shower (Falling & Bouncing Coins & Gems)
+    this.container.addChild(this.particleContainer);
+
+    // 8. Tap Hint
+    this.tapHintText = new Text({
+      text: "TAP TO COLLECT",
+      style: {
+        fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+        fontSize: 13,
+        fontWeight: "700",
+        fill: "#ffd700",
+        stroke: { color: 0x000000, width: 3 },
+        letterSpacing: 2,
+        align: "center",
+      },
+    });
+    this.tapHintText.anchor.set(0.5);
+    this.tapHintText.x = w / 2;
+    this.tapHintText.y = h - 28;
+    this.container.addChild(this.tapHintText);
 
     this.container.visible = false;
   }
@@ -818,39 +930,489 @@ export class BigWinModal {
   show(
     title: string,
     winCents: number,
-    onCoinTick?: () => void
+    onCoinTick?: () => void,
+    isMegaOverride?: boolean
   ): Promise<void> {
     return new Promise((resolve) => {
+      this.targetCents = winCents;
+      this.currentCents = 0;
+      this.isFastForwarded = false;
+      this.isMegaWinMode = isMegaOverride ?? title.toUpperCase().includes("MEGA");
+
+      if (this.animTimer) {
+        cancelAnimationFrame(this.animTimer);
+        this.animTimer = null;
+      }
+
+      // Cleanup prior objects
+      this.particles.forEach((p) => {
+        this.particleContainer.removeChild(p.g);
+        p.g.destroy();
+      });
+      this.particles = [];
+
+      this.fireworks.forEach((f) => {
+        this.fireworkContainer.removeChild(f.g);
+        f.g.destroy();
+      });
+      this.fireworks = [];
+
+      this.shockwaves.forEach((s) => {
+        this.shockwaveContainer.removeChild(s.g);
+        s.g.destroy();
+      });
+      this.shockwaves = [];
+
+      this.renderStaticBackdrop(this.isMegaWinMode);
+
+      // Title Styling
       this.titleText.text = title;
-      this.container.visible = true;
+      if (this.isMegaWinMode) {
+        this.titleText.style.fill = "#ff2a3b";
+        this.titleText.style.dropShadow = { alpha: 0.95, blur: 12, color: 0xff002b, distance: 4, angle: Math.PI / 4 };
+      } else {
+        this.titleText.style.fill = "#ffd700";
+        this.titleText.style.dropShadow = { alpha: 0.9, blur: 8, color: 0xff4d00, distance: 4, angle: Math.PI / 4 };
+      }
+
+      this.winText.text = winCents > 0 ? "R0.00" : "";
+      this.badgeContainer.scale.set(0.2);
       this.container.alpha = 0;
+      this.container.visible = true;
 
-      // Fade in and scale pop
+      // Explosive initial radial burst
+      const burstCount = this.isMegaWinMode ? 65 : 40;
+      for (let i = 0; i < burstCount; i++) {
+        this.spawnParticle(this.w / 2, this.h / 2 - 20, true);
+      }
+      this.triggerShockwave(this.w / 2, this.h / 2 - 20, this.isMegaWinMode ? 0xff2a3b : 0xffd700);
+
+      let time = 0;
       let alpha = 0;
-      const targetCents = winCents;
-      let currentCents = 0;
-      const stepCents = Math.max(1, Math.floor(targetCents / 20));
+      let badgeScale = 0.2;
+      let lastMilestone = 0;
+      let frameCount = 0;
+      let lastTickTime = performance.now();
 
-      const tick = () => {
+      const durationMs = this.isMegaWinMode ? 3600 : 2600;
+      const startTime = performance.now();
+
+      const tick = (now: number) => {
+        frameCount++;
+        const elapsed = now - startTime;
+        time += 0.05;
+
+        // 1. Fade in & badge spring pop
         if (alpha < 1) {
-          alpha += 0.1;
-          this.container.alpha = alpha;
+          alpha += 0.08;
+          this.container.alpha = Math.min(1, alpha);
+        }
+        if (badgeScale < 1.0) {
+          badgeScale += (1.05 - badgeScale) * 0.22;
+          this.badgeContainer.scale.set(badgeScale);
+        } else {
+          // Heartbeat pulse while counting
+          const pulse = 1.0 + 0.04 * Math.sin(time * 5);
+          this.badgeContainer.scale.set(pulse);
         }
 
-        if (currentCents < targetCents) {
-          currentCents = Math.min(targetCents, currentCents + stepCents);
-          this.winText.text = `R${(currentCents / 100).toFixed(2)}`;
-          onCoinTick?.();
-          this.animTimer = requestAnimationFrame(tick);
-        } else {
-          // Hold then resolve and fade out
+        // Tap hint pulse
+        this.tapHintText.alpha = 0.5 + 0.4 * Math.sin(time * 6);
+
+        // 2. Rotate light rays
+        this.raysContainer.rotation += this.isMegaWinMode ? 0.018 : 0.012;
+        this.raysGfx.alpha = 0.6 + 0.3 * Math.sin(time * 3);
+
+        // 3. Screen edge neon border pulse
+        this.borderGlow.clear();
+        const glowAlpha = 0.4 + 0.35 * Math.sin(time * 6);
+        this.borderGlow.roundRect(4, 4, this.w - 8, this.h - 8, 16);
+        this.borderGlow.stroke({
+          width: this.isMegaWinMode ? 6 : 4,
+          color: this.isMegaWinMode ? 0xff2a3b : 0xffd700,
+          alpha: glowAlpha,
+        });
+
+        // 4. Update Win Counter
+        if (winCents > 0) {
+          if (this.isFastForwarded) {
+            this.currentCents = winCents;
+          } else {
+            const progress = Math.min(1, elapsed / durationMs);
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            this.currentCents = Math.round(winCents * easeProgress);
+          }
+
+          this.winText.text = `R${(this.currentCents / 100).toFixed(2)}`;
+
+          if (now - lastTickTime > 85 && this.currentCents < winCents) {
+            lastTickTime = now;
+            onCoinTick?.();
+          }
+
+          // Milestone shockwave & firework pops
+          const milestone = Math.floor((this.currentCents / winCents) * 4);
+          if (milestone > lastMilestone) {
+            lastMilestone = milestone;
+            this.triggerShockwave(
+              this.w / 2,
+              this.h / 2 - 20,
+              this.isMegaWinMode ? 0xffffff : 0xffd700
+            );
+            this.spawnFirework(
+              this.w / 2 + (Math.random() - 0.5) * 160,
+              this.h / 2 - 20 + (Math.random() - 0.5) * 80,
+              16
+            );
+            this.badgeContainer.scale.set(1.18);
+          }
+        }
+
+        // 5. Electric arcs for Mega Win
+        if (frameCount % 3 === 0) {
+          this.updateLightning();
+        }
+
+        // 6. Spawn top shower particles
+        if (frameCount % 4 === 0 && (this.currentCents < winCents || Math.random() > 0.4)) {
+          this.spawnParticle(this.w / 2, this.h / 2 - 20, false);
+        }
+
+        // 7. Random fireworks bursts
+        if (frameCount % 18 === 0 && Math.random() > 0.3) {
+          this.spawnFirework(
+            this.w / 2 + (Math.random() - 0.5) * (this.w * 0.7),
+            this.h / 2 + (Math.random() - 0.5) * 160,
+            14
+          );
+        }
+
+        // 8. Update Particles, Fireworks, Shockwaves
+        this.updateParticles();
+        this.updateFireworks();
+        this.updateShockwaves();
+
+        // Completion check
+        const isCountDone = winCents === 0 || this.currentCents >= winCents;
+        const isMinTimePassed = elapsed >= (this.isFastForwarded ? 250 : durationMs);
+
+        if (isCountDone && isMinTimePassed) {
           setTimeout(() => {
             this.fadeOut().then(resolve);
-          }, 1000);
+          }, this.isFastForwarded ? 300 : 800);
+        } else {
+          this.animTimer = requestAnimationFrame(tick);
         }
       };
-      tick();
+
+      this.animTimer = requestAnimationFrame(tick);
     });
+  }
+
+  private renderStaticBackdrop(isMega: boolean) {
+    this.bg.clear();
+    this.bg.rect(0, 0, this.w, this.h);
+    this.bg.fill({ color: 0x020003, alpha: 0.82 });
+
+    this.bg.circle(this.w / 2, this.h / 2 - 20, Math.max(this.w, this.h) * 0.45);
+    this.bg.fill({ color: isMega ? 0xd61c24 : 0xffa000, alpha: 0.28 });
+
+    // Light rays
+    this.raysGfx.clear();
+    const rayCount = 20;
+    const rayLen = Math.max(this.w, this.h) * 1.3;
+
+    for (let i = 0; i < rayCount; i++) {
+      const a1 = (i / rayCount) * Math.PI * 2;
+      const a2 = ((i + 0.55) / rayCount) * Math.PI * 2;
+      this.raysGfx.moveTo(0, 0);
+      this.raysGfx.lineTo(Math.cos(a1) * rayLen, Math.sin(a1) * rayLen);
+      this.raysGfx.lineTo(Math.cos(a2) * rayLen, Math.sin(a2) * rayLen);
+      this.raysGfx.closePath();
+
+      if (i % 2 === 0) {
+        this.raysGfx.fill({ color: isMega ? 0xff2a3b : 0xffd700, alpha: 0.28 });
+      } else {
+        this.raysGfx.fill({ color: isMega ? 0xffffff : 0xff8000, alpha: 0.14 });
+      }
+    }
+
+    // Metallic Shield Badge
+    const bw = Math.min(this.w * 0.84, 340);
+    const bh = 150;
+
+    this.badgeBg.clear();
+    this.badgeBg.roundRect(-bw / 2 - 6, -bh / 2 - 6, bw + 12, bh + 12, 22);
+    this.badgeBg.fill({ color: 0x000000, alpha: 0.65 });
+
+    this.badgeBg.roundRect(-bw / 2, -bh / 2, bw, bh, 18);
+    this.badgeBg.fill({ color: isMega ? 0x8a0008 : 0x2e1a00, alpha: 0.98 });
+    this.badgeBg.stroke({ width: 4.5, color: isMega ? 0xff2a3b : 0xffd700, alpha: 1.0 });
+
+    this.badgeBg.roundRect(-bw / 2 + 5, -bh / 2 + 5, bw - 10, bh - 10, 14);
+    this.badgeBg.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+
+    this.badgeBg.roundRect(-bw / 2 + 8, -bh / 2 + 8, bw - 16, bh - 16, 12);
+    this.badgeBg.fill({ color: 0x080102, alpha: 0.96 });
+
+    const cornerX = bw / 2 - 16;
+    const cornerY = bh / 2 - 16;
+    const offsets = [
+      [-cornerX, -cornerY],
+      [cornerX, -cornerY],
+      [-cornerX, cornerY],
+      [cornerX, cornerY],
+    ];
+    for (const [ox, oy] of offsets) {
+      this.badgeBg.star(ox, oy, 4, 6, 3);
+      this.badgeBg.fill(isMega ? 0xffffff : 0xffd700);
+    }
+  }
+
+  private updateLightning() {
+    this.lightningGfx.clear();
+    if (!this.isMegaWinMode) return;
+
+    const bw = Math.min(this.w * 0.84, 340);
+    const bh = 150;
+    const halfW = bw / 2 + 4;
+    const halfH = bh / 2 + 4;
+
+    const boltCount = Math.floor(Math.random() * 3) + 2;
+    for (let b = 0; b < boltCount; b++) {
+      const side = Math.floor(Math.random() * 4);
+      let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+      if (side === 0) {
+        x1 = -halfW + Math.random() * bw;
+        y1 = -halfH;
+        x2 = x1 + (Math.random() - 0.5) * 60;
+        y2 = y1;
+      } else if (side === 1) {
+        x1 = halfW;
+        y1 = -halfH + Math.random() * bh;
+        x2 = x1;
+        y2 = y1 + (Math.random() - 0.5) * 60;
+      } else if (side === 2) {
+        x1 = -halfW + Math.random() * bw;
+        y1 = halfH;
+        x2 = x1 + (Math.random() - 0.5) * 60;
+        y2 = y1;
+      } else {
+        x1 = -halfW;
+        y1 = -halfH + Math.random() * bh;
+        x2 = x1;
+        y2 = y1 + (Math.random() - 0.5) * 60;
+      }
+
+      const segments = 4;
+      this.lightningGfx.moveTo(x1, y1);
+      for (let s = 1; s <= segments; s++) {
+        const t = s / segments;
+        const nextX = x1 + (x2 - x1) * t + (Math.random() - 0.5) * 16;
+        const nextY = y1 + (y2 - y1) * t + (Math.random() - 0.5) * 16;
+        this.lightningGfx.lineTo(nextX, nextY);
+      }
+
+      const colors = [0xffffff, 0xff2a3b, 0xffd700];
+      const c = colors[Math.floor(Math.random() * colors.length)];
+      this.lightningGfx.stroke({ width: 2.5, color: c, alpha: 0.9 });
+    }
+  }
+
+  private spawnParticle(cx: number, cy: number, isInitialExplosion = false) {
+    const g = new Graphics();
+    const types: Array<BigWinParticle["type"]> = ["coin", "ruby", "diamond", "star", "confetti"];
+    const type = types[Math.floor(Math.random() * types.length)];
+
+    let color = 0xff2a3b;
+    if (type === "coin" || type === "star") color = 0xffd700;
+    else if (type === "diamond") color = Math.random() > 0.5 ? 0xffffff : 0xff2a3b;
+    else if (type === "confetti") {
+      const cList = [0xffd700, 0xff2a3b, 0xffffff, 0xff8000, 0xd61c24];
+      color = cList[Math.floor(Math.random() * cList.length)];
+    }
+
+    let x = cx;
+    let y = cy;
+    let vx = 0;
+    let vy = 0;
+
+    if (isInitialExplosion) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 5 + Math.random() * 11;
+      vx = Math.cos(angle) * speed;
+      vy = Math.sin(angle) * speed - 4;
+    } else {
+      x = Math.random() * this.w;
+      y = -15;
+      vx = (Math.random() - 0.5) * 3;
+      vy = 2 + Math.random() * 5;
+    }
+
+    const p: BigWinParticle = {
+      g,
+      type,
+      x,
+      y,
+      vx,
+      vy,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.25,
+      scale: 0.8 + Math.random() * 0.6,
+      life: 1.0,
+      bounceCount: 0,
+      color,
+    };
+
+    g.x = x;
+    g.y = y;
+    g.rotation = p.rot;
+    this.particleContainer.addChild(g);
+    this.particles.push(p);
+  }
+
+  private spawnFirework(cx: number, cy: number, count = 18) {
+    const colors = [0xffd700, 0xffffff, 0xff2a3b, 0xff8000];
+    for (let i = 0; i < count; i++) {
+      const g = new Graphics();
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 8;
+
+      g.circle(0, 0, 2 + Math.random() * 2);
+      g.fill(color);
+      g.x = cx;
+      g.y = cy;
+
+      this.fireworkContainer.addChild(g);
+      this.fireworks.push({
+        g,
+        x: cx,
+        y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        alpha: 1.0,
+        color,
+      });
+    }
+  }
+
+  private triggerShockwave(cx: number, cy: number, color = 0xffd700) {
+    const g = new Graphics();
+    this.shockwaveContainer.addChild(g);
+    this.shockwaves.push({
+      g,
+      x: cx,
+      y: cy,
+      r: 10,
+      maxR: 180 + Math.random() * 60,
+      alpha: 0.95,
+      color,
+    });
+  }
+
+  private updateParticles() {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.vy += 0.32;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.rotSpeed;
+
+      if (p.y >= this.h - 18 && p.bounceCount < 2) {
+        p.vy = -p.vy * (0.42 + Math.random() * 0.2);
+        p.vx *= 0.7;
+        p.y = this.h - 18;
+        p.bounceCount++;
+      }
+
+      p.life -= 0.012;
+      p.g.x = p.x;
+      p.g.y = p.y;
+      p.g.rotation = p.rot;
+      p.g.alpha = Math.max(0, Math.min(1, p.life * 2));
+
+      p.g.clear();
+      if (p.type === "coin") {
+        p.g.ellipse(0, 0, Math.max(1, 8 * Math.abs(Math.cos(p.rot))), 8);
+        p.g.fill(0xffd700);
+        p.g.stroke({ width: 1.5, color: 0xff8000 });
+      } else if (p.type === "ruby") {
+        p.g.moveTo(0, -8);
+        p.g.lineTo(6, -3);
+        p.g.lineTo(6, 4);
+        p.g.lineTo(0, 8);
+        p.g.lineTo(-6, 4);
+        p.g.lineTo(-6, -3);
+        p.g.closePath();
+        p.g.fill(0xd61c24);
+        p.g.stroke({ width: 1.2, color: 0xffffff });
+      } else if (p.type === "diamond") {
+        p.g.moveTo(0, -9);
+        p.g.lineTo(7, 0);
+        p.g.lineTo(0, 9);
+        p.g.lineTo(-7, 0);
+        p.g.closePath();
+        p.g.fill(0xffffff);
+        p.g.stroke({ width: 1.5, color: p.color });
+      } else if (p.type === "star") {
+        p.g.star(0, 0, 5, 8, 4);
+        p.g.fill(0xffd700);
+        p.g.stroke({ width: 1, color: 0xffffff });
+      } else {
+        p.g.rect(-5, -2.5, 10, 5);
+        p.g.fill(p.color);
+      }
+
+      if (p.life <= 0 || p.y > this.h + 50) {
+        this.particleContainer.removeChild(p.g);
+        p.g.destroy();
+        this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  private updateFireworks() {
+    for (let i = this.fireworks.length - 1; i >= 0; i--) {
+      const f = this.fireworks[i];
+      f.vy += 0.12;
+      f.x += f.vx;
+      f.y += f.vy;
+      f.alpha -= 0.025;
+
+      f.g.x = f.x;
+      f.g.y = f.y;
+      f.g.alpha = Math.max(0, f.alpha);
+
+      if (f.alpha <= 0) {
+        this.fireworkContainer.removeChild(f.g);
+        f.g.destroy();
+        this.fireworks.splice(i, 1);
+      }
+    }
+  }
+
+  private updateShockwaves() {
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const s = this.shockwaves[i];
+      s.r += 7;
+      s.alpha -= 0.03;
+
+      s.g.clear();
+      s.g.circle(s.x, s.y, s.r);
+      s.g.stroke({
+        width: Math.max(1, 6 * (s.alpha / 0.95)),
+        color: s.color,
+        alpha: Math.max(0, s.alpha),
+      });
+
+      if (s.alpha <= 0 || s.r >= s.maxR) {
+        this.shockwaveContainer.removeChild(s.g);
+        s.g.destroy();
+        this.shockwaves.splice(i, 1);
+      }
+    }
   }
 
   private fadeOut(): Promise<void> {
