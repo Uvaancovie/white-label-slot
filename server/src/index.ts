@@ -66,7 +66,7 @@ app.get("/api/config/:gameId", (req, res) => {
 
 /** Server-authoritative spin */
 app.post("/api/spin", (req, res) => {
-  const { sessionId, betCents } = req.body ?? {};
+  const { sessionId, betCents, useFreeSpin } = req.body ?? {};
   if (!sessionId || typeof betCents !== "number") {
     res.status(400).json({ error: "sessionId and betCents required" });
     return;
@@ -81,7 +81,12 @@ app.post("/api/spin", (req, res) => {
   const config = getConfig(session.gameId);
 
   try {
-    const result = executeSpin(session, config, betCents);
+    const result = executeSpin(
+      session,
+      config,
+      betCents,
+      useFreeSpin !== false
+    );
     res.json(result);
   } catch (err) {
     if (err instanceof SpinError) {

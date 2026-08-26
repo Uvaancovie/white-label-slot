@@ -40,11 +40,12 @@ export async function spin(
   sessionId: string,
   betCents: number,
   turbo = false,
+  useFreeSpin = true,
 ): Promise<SpinResult> {
   const res = await fetch("/api/spin", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId, betCents, turbo }),
+    body: JSON.stringify({ sessionId, betCents, turbo, useFreeSpin }),
   });
   return parseJson(res);
 }

@@ -1,5 +1,5 @@
 import { BlurFilter, Container, Graphics, Text } from "pixi.js";
-import type { GameConfig, SymbolId, LineWin } from "@sa-slot/shared";
+import type { GameConfig, SymbolId, LineWin, SpinResult } from "@sa-slot/shared";
 import { createSymbolSprite } from "./symbols.js";
 
 /** Subtle floating diamond background animation in PixiJS */
@@ -927,6 +927,17 @@ export class BigWinModal {
     this.container.visible = false;
   }
 
+  resize(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+    this.raysContainer.x = w / 2;
+    this.raysContainer.y = h / 2 - 20;
+    this.badgeContainer.x = w / 2;
+    this.badgeContainer.y = h / 2 - 20;
+    this.tapHintText.x = w / 2;
+    this.tapHintText.y = h - 28;
+  }
+
   show(
     title: string,
     winCents: number,
@@ -1499,9 +1510,16 @@ export class FlashImpactOverlay {
     this.container.addChild(this.flash);
   }
 
+  resize(w: number, h: number) {
+    this.flash.clear();
+    this.flash.rect(0, 0, w, h);
+    this.flash.fill(0xffffff);
+    this.flash.alpha = 0;
+  }
+
   triggerFlash(color = 0xffffff, duration = 250) {
     this.flash.clear();
-    this.flash.rect(-100, -100, 1200, 1200);
+    this.flash.rect(-100, -100, 2000, 2000);
     this.flash.fill(color);
     this.flash.alpha = 0.4;
 
@@ -1517,5 +1535,325 @@ export class FlashImpactOverlay {
     requestAnimationFrame(tick);
   }
 }
+
+/**
+ * Overlay breakdown of winning symbols and their individual contributions
+ */
+export class WinBreakdownOverlay {
+  readonly container = new Container();
+  private panel = new Container();
+  private cardBg = new Graphics();
+  private w: number;
+  private h: number;
+  private autoDismissTimer: number | null = null;
+  private isVisible = false;
+
+  constructor(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+    this.container.addChild(this.panel);
+    this.panel.addChild(this.cardBg);
+
+    this.container.eventMode = "static";
+    this.container.cursor = "pointer";
+    this.container.on("pointerdown", () => {
+      this.hide();
+    });
+
+    this.container.visible = false;
+  }
+
+  resize(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+  }
+
+  showBreakdown(
+    result: SpinResult,
+    onDismiss?: () => void,
+    autoDismissMs = 6500
+  ) {
+    if (this.autoDismissTimer) {
+      clearTimeout(this.autoDismissTimer);
+      this.autoDismissTimer = null;
+    }
+
+    this.panel.removeChildren();
+    this.cardBg = new Graphics();
+    this.panel.addChild(this.cardBg);
+
+    const hasLineWins = result.lineWins && result.lineWins.length > 0;
+    const hasScatter = result.scatterWin && result.scatterWin.winCents > 0;
+
+    if (!hasLineWins && !hasScatter) {
+      this.hide();
+      return;
+    }
+
+    const totalWinCents = Math.max(1, result.totalWinCents);
+    const winEntries: Array<{
+      type: "line" | "scatter";
+      label: string;
+      symbolName: string;
+      count: number;
+      winCents: number;
+      color: number;
+      extraInfo?: string;
+    }> = [];
+
+    const lineColors = [0xff2a3b, 0xffd700, 0xff5c7a, 0x00ffcc, 0xffa500, 0x9966ff];
+
+    result.lineWins.forEach((win: LineWin, idx: number) => {
+      const symName = win.symbol.replace("_", " ").toUpperCase();
+      winEntries.push({
+        type: "line",
+        label: `LINE ${win.paylineIndex + 1}`,
+        symbolName: symName,
+        count: win.count,
+        winCents: win.winCents,
+        color: lineColors[idx % lineColors.length],
+      });
+    });
+
+    if (result.scatterWin && result.scatterWin.winCents > 0) {
+      winEntries.push({
+        type: "scatter",
+        label: "SCATTER",
+        symbolName: "DIAMOND SCATTER",
+        count: result.scatterWin.count,
+        winCents: result.scatterWin.winCents,
+        color: 0xff3344,
+        extraInfo:
+          result.scatterWin.freeSpinsAwarded > 0
+            ? `+${result.scatterWin.freeSpinsAwarded} FREE SPINS`
+            : undefined,
+      });
+    }
+
+    const cardWidth = Math.min(340, this.w - 24);
+    const rowHeight = 44;
+    const headerHeight = 58;
+    const footerHeight = 28;
+    const cardHeight = Math.min(
+      this.h - 40,
+      headerHeight + winEntries.length * rowHeight + footerHeight
+    );
+
+    const cardX = (this.w - cardWidth) / 2;
+    const cardY = (this.h - cardHeight) / 2;
+
+    this.panel.x = cardX;
+    this.panel.y = cardY;
+
+    // Card Glass Background
+    this.cardBg.clear();
+    // Drop Shadow
+    this.cardBg.roundRect(4, 6, cardWidth, cardHeight, 14);
+    this.cardBg.fill({ color: 0x000000, alpha: 0.75 });
+    // Obsidian Metallic Body
+    this.cardBg.roundRect(0, 0, cardWidth, cardHeight, 14);
+    this.cardBg.fill({ color: 0x0c0103, alpha: 0.95 });
+    this.cardBg.stroke({ width: 2, color: 0xff2a3b, alpha: 0.95 });
+    // Header divider
+    this.cardBg.moveTo(0, headerHeight);
+    this.cardBg.lineTo(cardWidth, headerHeight);
+    this.cardBg.stroke({ width: 1.5, color: 0xff2a3b, alpha: 0.4 });
+
+    // Header Title
+    const titleText = new Text({
+      text: "WIN COMBINATIONS BREAKDOWN",
+      style: {
+        fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+        fontSize: 14,
+        fontWeight: "700",
+        fill: "#ff4d5a",
+        letterSpacing: 1,
+      },
+    });
+    titleText.x = 14;
+    titleText.y = 12;
+    this.panel.addChild(titleText);
+
+    // Total Win Text
+    const totalWinText = new Text({
+      text: `TOTAL: +R${(result.totalWinCents / 100).toFixed(2)}`,
+      style: {
+        fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+        fontSize: 17,
+        fontWeight: "700",
+        fill: "#ffffff",
+        dropShadow: { alpha: 0.8, blur: 4, color: 0xff2a3b, distance: 1, angle: Math.PI / 4 },
+      },
+    });
+    totalWinText.x = 14;
+    totalWinText.y = 30;
+    this.panel.addChild(totalWinText);
+
+    // Close button tag
+    const closeText = new Text({
+      text: "✕ CLOSE",
+      style: {
+        fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+        fontSize: 12,
+        fontWeight: "700",
+        fill: "#e0adb1",
+      },
+    });
+    closeText.anchor.set(1, 0);
+    closeText.x = cardWidth - 14;
+    closeText.y = 18;
+    this.panel.addChild(closeText);
+
+    // Rows Container
+    const rowsCont = new Container();
+    rowsCont.y = headerHeight + 6;
+
+    winEntries.forEach((entry, idx) => {
+      const rowY = idx * rowHeight;
+      const rowBg = new Graphics();
+
+      // Row alternate background
+      rowBg.roundRect(8, rowY, cardWidth - 16, rowHeight - 6, 8);
+      rowBg.fill({ color: 0x1a0205, alpha: 0.7 });
+      rowBg.stroke({ width: 1, color: entry.color, alpha: 0.4 });
+
+      // Contribution progress bar
+      const pct = Math.min(1, entry.winCents / totalWinCents);
+      const barWidth = Math.max(4, (cardWidth - 20) * pct);
+      rowBg.roundRect(10, rowY + rowHeight - 10, barWidth, 3, 2);
+      rowBg.fill({ color: entry.color, alpha: 0.9 });
+
+      rowsCont.addChild(rowBg);
+
+      // Line Badge Text
+      const lineTag = new Text({
+        text: entry.label,
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 11,
+          fontWeight: "700",
+          fill: entry.color,
+        },
+      });
+      lineTag.x = 16;
+      lineTag.y = rowY + 5;
+      rowsCont.addChild(lineTag);
+
+      // Symbol Match Text
+      const symMatch = new Text({
+        text: `${entry.count}× ${entry.symbolName}`,
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 13,
+          fontWeight: "700",
+          fill: "#ffffff",
+        },
+      });
+      symMatch.x = 16;
+      symMatch.y = rowY + 18;
+      rowsCont.addChild(symMatch);
+
+      // Win Amount & Share Text
+      const pctStr = Math.round(pct * 100);
+      const winVal = new Text({
+        text: `+R${(entry.winCents / 100).toFixed(2)} (${pctStr}%)`,
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 14,
+          fontWeight: "700",
+          fill: "#ffd700",
+          align: "right",
+        },
+      });
+      winVal.anchor.set(1, 0);
+      winVal.x = cardWidth - 16;
+      winVal.y = rowY + 10;
+      rowsCont.addChild(winVal);
+
+      if (entry.extraInfo) {
+        const extraText = new Text({
+          text: entry.extraInfo,
+          style: {
+            fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+            fontSize: 9,
+            fontWeight: "700",
+            fill: "#ff4d5a",
+            align: "right",
+          },
+        });
+        extraText.anchor.set(1, 0);
+        extraText.x = cardWidth - 16;
+        extraText.y = rowY + 24;
+        rowsCont.addChild(extraText);
+      }
+    });
+
+    this.panel.addChild(rowsCont);
+
+    // Footer Hint
+    const footerHint = new Text({
+      text: "Tap anywhere to close breakdown",
+      style: {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: 10,
+        fill: "#e0adb1",
+        align: "center",
+      },
+    });
+    footerHint.anchor.set(0.5);
+    footerHint.x = cardWidth / 2;
+    footerHint.y = cardHeight - 12;
+    this.panel.addChild(footerHint);
+
+    // Slide-up and fade-in entrance animation
+    this.container.visible = true;
+    this.isVisible = true;
+    this.panel.alpha = 0;
+    this.panel.y = cardY + 20;
+
+    const start = performance.now();
+    const anim = (now: number) => {
+      if (!this.isVisible) return;
+      const tNorm = Math.min(1, (now - start) / 220);
+      this.panel.alpha = tNorm;
+      this.panel.y = cardY + (1 - tNorm) * 20;
+      if (tNorm < 1) {
+        requestAnimationFrame(anim);
+      }
+    };
+    requestAnimationFrame(anim);
+
+    if (autoDismissMs > 0) {
+      this.autoDismissTimer = window.setTimeout(() => {
+        this.hide(onDismiss);
+      }, autoDismissMs);
+    }
+  }
+
+  hide(onDismiss?: () => void) {
+    if (!this.isVisible) return;
+    if (this.autoDismissTimer) {
+      clearTimeout(this.autoDismissTimer);
+      this.autoDismissTimer = null;
+    }
+    this.isVisible = false;
+
+    const start = performance.now();
+    const startY = this.panel.y;
+    const anim = (now: number) => {
+      const tNorm = Math.min(1, (now - start) / 180);
+      this.panel.alpha = 1 - tNorm;
+      this.panel.y = startY + tNorm * 15;
+      if (tNorm < 1) {
+        requestAnimationFrame(anim);
+      } else {
+        this.container.visible = false;
+        if (onDismiss) onDismiss();
+      }
+    };
+    requestAnimationFrame(anim);
+  }
+}
+
 
 

@@ -114,6 +114,7 @@ export interface SpinRequest {
   sessionId: string;
   betCents: number;
   turbo?: boolean;
+  useFreeSpin?: boolean;
 }
 
 export interface SpinResult {

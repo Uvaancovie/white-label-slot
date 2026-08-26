@@ -1,6 +1,16 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import type { GameConfig, SpinResult, SymbolId } from "@sa-slot/shared";
-import { BigWinModal, CoinBurst, DiamondBackground, FlashImpactOverlay, FloatingWinManager, PaylineOverlay, ReelBoard, WinHighlighter } from "./reels.js";
+import {
+  BigWinModal,
+  CoinBurst,
+  DiamondBackground,
+  FlashImpactOverlay,
+  FloatingWinManager,
+  PaylineOverlay,
+  ReelBoard,
+  WinBreakdownOverlay,
+  WinHighlighter,
+} from "./reels.js";
 import { SoundBus } from "./audio.js";
 
 export class GameScene {
@@ -12,13 +22,18 @@ export class GameScene {
   private flashOverlay!: FlashImpactOverlay;
   private coins!: CoinBurst;
   private bigWinModal!: BigWinModal;
+  private breakdownOverlay!: WinBreakdownOverlay;
   private diamondBg!: DiamondBackground;
   private title!: Text;
+  private accentBar = new Graphics();
+  private bg = new Graphics();
+  private topGlow = new Graphics();
   private root = new Container();
   private config: GameConfig;
   private sound: SoundBus;
   private cellW = 70;
   private cellH = 78;
+  private lastSpinResult: SpinResult | null = null;
   reducedMotion = false;
   turbo = false;
 
@@ -34,17 +49,15 @@ export class GameScene {
     const h = view.clientHeight || 480;
 
     // Background gradient & casino glow
-    const bg = new Graphics();
-    bg.rect(0, 0, w, h);
-    bg.fill(this.hex(this.config.branding.backgroundBottom));
+    this.bg.rect(0, 0, w, h);
+    this.bg.fill(this.hex(this.config.branding.backgroundBottom));
 
-    const top = new Graphics();
-    top.ellipse(w / 2, 0, w * 0.8, h * 0.5);
-    top.fill({
+    this.topGlow.ellipse(w / 2, 0, w * 0.8, h * 0.5);
+    this.topGlow.fill({
       color: this.hex(this.config.branding.primaryColor),
       alpha: 0.35,
     });
-    this.root.addChild(bg, top);
+    this.root.addChild(this.bg, this.topGlow);
 
     // Floating diamond background animation (Red, Black & White floating gems)
     this.diamondBg = new DiamondBackground(w, h, 36);
@@ -115,18 +128,59 @@ export class GameScene {
     this.bigWinModal = new BigWinModal(w, h);
     this.root.addChild(this.bigWinModal.container);
 
+    this.breakdownOverlay = new WinBreakdownOverlay(w, h);
+    this.root.addChild(this.breakdownOverlay.container);
+
     // Red & Black Diamond accent bar under title
-    const bar = new Graphics();
+    this.renderAccentBar(w);
+    this.root.addChild(this.accentBar);
+
+    this.app.stage.addChild(this.root);
+  }
+
+  private renderAccentBar(w: number) {
+    this.accentBar.clear();
     const barY = 46;
     const colors = [0x8a0008, 0xd61c24, 0xff2a3b, 0xffffff, 0xff2a3b, 0xd61c24, 0x8a0008];
     const bw = w / colors.length;
     colors.forEach((c, i) => {
-      bar.rect(i * bw, barY, bw, 3);
-      bar.fill(c);
+      this.accentBar.rect(i * bw, barY, bw, 3);
+      this.accentBar.fill(c);
     });
-    this.root.addChild(bar);
+  }
 
-    this.app.stage.addChild(this.root);
+  resize(w: number, h: number) {
+    if (!this.bg || !this.title) return;
+    this.bg.clear();
+    this.bg.rect(0, 0, w, h);
+    this.bg.fill(this.hex(this.config.branding.backgroundBottom));
+
+    this.topGlow.clear();
+    this.topGlow.ellipse(w / 2, 0, w * 0.8, h * 0.5);
+    this.topGlow.fill({
+      color: this.hex(this.config.branding.primaryColor),
+      alpha: 0.35,
+    });
+
+    this.title.x = w / 2;
+    this.renderAccentBar(w);
+
+    if (this.board) {
+      this.board.container.x = (w - this.cellW * 5) / 2;
+      this.highlight.container.x = this.board.container.x;
+      this.paylineOverlay.container.x = this.board.container.x;
+      this.floatingWins.container.x = this.board.container.x;
+    }
+
+    if (this.bigWinModal) {
+      this.bigWinModal.resize(w, h);
+    }
+    if (this.breakdownOverlay) {
+      this.breakdownOverlay.resize(w, h);
+    }
+    if (this.flashOverlay) {
+      this.flashOverlay.resize(w, h);
+    }
   }
 
   setTitle(text: string) {
@@ -166,10 +220,19 @@ export class GameScene {
     requestAnimationFrame(tick);
   }
 
+  showWinBreakdown(result?: SpinResult) {
+    const res = result || this.lastSpinResult;
+    if (res && (res.lineWins.length > 0 || (res.scatterWin && res.scatterWin.winCents > 0))) {
+      this.breakdownOverlay.showBreakdown(res);
+    }
+  }
+
   async playSpin(result: SpinResult): Promise<void> {
+    this.lastSpinResult = result;
     this.highlight.clear();
     this.paylineOverlay.clear();
     this.floatingWins.clear();
+    this.breakdownOverlay.hide();
     this.sound.spin();
     this.diamondBg.setSpinning(true);
 
@@ -248,6 +311,9 @@ export class GameScene {
           this.shakeScreen(180, 4);
           this.coins.burst(cx, cy, 18);
         }
+
+        // Display winning symbols overlay breakdown
+        this.breakdownOverlay.showBreakdown(result);
       }
 
       if (result.freeSpinsJustAwarded > 0) {
@@ -274,4 +340,5 @@ export class GameScene {
     return parseInt(s.length === 3 ? s.split("").map((c) => c + c).join("") : s, 16);
   }
 }
+
 

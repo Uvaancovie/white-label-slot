@@ -30,6 +30,7 @@ let reducedMotion =
 let autoRemaining = 0;
 let autoStopWinCents: number | undefined;
 let autoStopBalanceCents: number | undefined;
+let freeSpinsBanked = false;
 
 const el = {
   balance: document.getElementById("val-balance")!,
@@ -44,6 +45,8 @@ const el = {
   footerLegal: document.getElementById("footer-legal")!,
   rgLink: document.getElementById("rg-link") as HTMLAnchorElement,
   fsBadge: document.getElementById("fs-badge")!,
+  fsBadgeText: document.getElementById("fs-badge-text")!,
+  btnFsToggle: document.getElementById("btn-fs-toggle") as HTMLButtonElement,
   toast: document.getElementById("toast")!,
   lblBalance: document.getElementById("lbl-balance")!,
   lblBet: document.getElementById("lbl-bet")!,
@@ -53,6 +56,7 @@ const el = {
   btnMotion: document.getElementById("btn-motion")!,
   btnLang: document.getElementById("btn-lang")!,
   btnAuto: document.getElementById("btn-auto")!,
+  btnBreakdown: document.getElementById("btn-breakdown")!,
   btnPaytable: document.getElementById("btn-paytable")!,
   btnRules: document.getElementById("btn-rules")!,
   btnSession: document.getElementById("btn-session")!,
@@ -131,15 +135,54 @@ function refreshMeters() {
   el.bet.textContent = formatZar(currentBet());
   el.betDisplay.textContent = formatZar(currentBet());
   el.win.textContent = formatZar(lastWinCents);
-  el.fsBadge.classList.toggle("show", session.freeSpinsRemaining > 0);
-  el.fsBadge.textContent = `${t(locale, "freeSpins")}: ${session.freeSpinsRemaining}`;
-  el.spinBtn.classList.toggle("free", session.freeSpinsRemaining > 0);
-  el.spinBtn.textContent =
-    autoRemaining > 0
-      ? `${t(locale, "stop")} (${autoRemaining})`
-      : session.freeSpinsRemaining > 0
-        ? t(locale, "freeSpins")
+
+  const hasFs = session.freeSpinsRemaining > 0;
+  el.fsBadge.classList.toggle("show", hasFs);
+  el.fsBadge.classList.toggle("banked", freeSpinsBanked && hasFs);
+
+  if (hasFs) {
+    if (freeSpinsBanked) {
+      el.fsBadgeText.textContent = `🎁 BANKED: ${session.freeSpinsRemaining}`;
+      el.btnFsToggle.textContent = t(locale, "resumeFreeSpins");
+      el.spinBtn.classList.remove("free");
+      el.spinBtn.textContent =
+        autoRemaining > 0
+          ? `${t(locale, "stop")} (${autoRemaining})`
+          : t(locale, "spin");
+      el.betMinus.disabled = busy || autoRemaining > 0;
+      el.betPlus.disabled = busy || autoRemaining > 0;
+    } else {
+      el.fsBadgeText.textContent = `⚡ ${t(locale, "freeSpins")}: ${session.freeSpinsRemaining}`;
+      el.btnFsToggle.textContent = t(locale, "saveForLater");
+      el.spinBtn.classList.add("free");
+      el.spinBtn.textContent =
+        autoRemaining > 0
+          ? `${t(locale, "stop")} (${autoRemaining})`
+          : t(locale, "freeSpins");
+      el.betMinus.disabled = true;
+      el.betPlus.disabled = true;
+    }
+  } else {
+    freeSpinsBanked = false;
+    el.spinBtn.classList.remove("free");
+    el.spinBtn.textContent =
+      autoRemaining > 0
+        ? `${t(locale, "stop")} (${autoRemaining})`
         : t(locale, "spin");
+    el.betMinus.disabled = busy || autoRemaining > 0;
+    el.betPlus.disabled = busy || autoRemaining > 0;
+  }
+}
+
+function toggleFreeSpinsBank() {
+  if (session.freeSpinsRemaining <= 0) return;
+  freeSpinsBanked = !freeSpinsBanked;
+  refreshMeters();
+  showToast(
+    freeSpinsBanked
+      ? `🎁 Free Spins Saved! (${session.freeSpinsRemaining})`
+      : `⚡ Resuming Free Spins!`
+  );
 }
 
 function applyI18n() {
@@ -148,6 +191,7 @@ function applyI18n() {
   el.lblBet.textContent = t(locale, "bet");
   el.lblWin.textContent = t(locale, "win");
   el.lblJackpot.textContent = t(locale, "progressiveJackpot");
+  el.btnBreakdown.textContent = t(locale, "winBreakdown");
   el.btnPaytable.textContent = t(locale, "paytable");
   el.btnRules.textContent = t(locale, "rules");
   el.btnSession.textContent = t(locale, "session");
@@ -251,10 +295,12 @@ async function doSpin() {
   el.betPlus.disabled = true;
 
   try {
+    const willUseFreeSpin = session.freeSpinsRemaining > 0 && !freeSpinsBanked;
     const result: SpinResult = await spin(
       session.sessionId,
       currentBet(),
       turbo,
+      willUseFreeSpin,
     );
     session.balanceCents = result.balanceCents;
     session.freeSpinsRemaining = result.freeSpinsRemaining;
@@ -311,8 +357,9 @@ async function doSpin() {
   } finally {
     busy = false;
     el.spinBtn.disabled = false;
-    el.betMinus.disabled = session.freeSpinsRemaining > 0 || autoRemaining > 0;
-    el.betPlus.disabled = session.freeSpinsRemaining > 0 || autoRemaining > 0;
+    const isLockedFreeSpin = session.freeSpinsRemaining > 0 && !freeSpinsBanked;
+    el.betMinus.disabled = isLockedFreeSpin || autoRemaining > 0;
+    el.betPlus.disabled = isLockedFreeSpin || autoRemaining > 0;
     refreshMeters();
 
     if (autoRemaining > 0) {
@@ -357,18 +404,30 @@ async function boot() {
   scene.setMotion(reducedMotion, turbo);
   scene.setTitle(config.branding.logoText);
 
+  // ResizeObserver for fluid stretched layouts
+  const resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        app.renderer.resize(width, height);
+        scene.resize(width, height);
+      }
+    }
+  });
+  resizeObserver.observe(host);
+
   applyI18n();
   buildPaytable();
   updateJackpotDisplay(jackpotCents, false);
 
   // Wire controls
   el.betMinus.addEventListener("click", () => {
-    if (busy || autoRemaining || session.freeSpinsRemaining) return;
+    if (busy || autoRemaining || (session.freeSpinsRemaining && !freeSpinsBanked)) return;
     betIndex = Math.max(0, betIndex - 1);
     refreshMeters();
   });
   el.betPlus.addEventListener("click", () => {
-    if (busy || autoRemaining || session.freeSpinsRemaining) return;
+    if (busy || autoRemaining || (session.freeSpinsRemaining && !freeSpinsBanked)) return;
     betIndex = Math.min(config.betting.betStepsCents.length - 1, betIndex + 1);
     refreshMeters();
   });
@@ -379,6 +438,15 @@ async function boot() {
       return;
     }
     void doSpin();
+  });
+
+  el.btnFsToggle?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFreeSpinsBank();
+  });
+
+  el.btnBreakdown?.addEventListener("click", () => {
+    scene.showWinBreakdown();
   });
 
   el.btnTurbo.addEventListener("click", () => {

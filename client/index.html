@@ -45,9 +45,10 @@
       }
       #app {
         height: 100%;
+        width: 100%;
         display: flex;
         flex-direction: column;
-        max-width: 480px;
+        max-width: 1000px;
         margin: 0 auto;
         position: relative;
       }
@@ -67,6 +68,11 @@
         flex: 1 1 auto;
         position: relative;
         min-height: 0;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #260205 0%, #080001 80%);
       }
       #game-root canvas {
         display: block;
@@ -75,11 +81,23 @@
       }
       #hud {
         flex: 0 0 auto;
+        width: 100%;
         background: var(--panel);
         border-top: 1px solid rgba(255, 42, 59, 0.45);
         box-shadow: 0 -8px 24px rgba(214, 28, 36, 0.2);
-        padding: 10px 12px 14px;
+        padding: 10px 14px 14px;
         z-index: 10;
+      }
+      @media (min-width: 640px) {
+        #hud {
+          padding: 12px 24px 16px;
+        }
+        .meters {
+          gap: 14px;
+        }
+        .controls {
+          gap: 16px;
+        }
       }
       .jackpot-container {
         background: linear-gradient(135deg, #180003 0%, #3a0208 50%, #150002 100%);
@@ -434,21 +452,47 @@
       #fs-badge {
         display: none;
         position: absolute;
-        top: 10px;
-        right: 10px;
-        background: rgba(214, 28, 36, 0.92);
-        border: 1px solid #ffffff;
+        top: 12px;
+        right: 12px;
+        background: linear-gradient(135deg, rgba(214, 28, 36, 0.95), rgba(138, 0, 8, 0.95));
+        border: 1.5px solid #ffffff;
         color: #fff;
         font-family: Rajdhani, sans-serif;
         font-weight: 700;
-        font-size: 14px;
-        padding: 6px 10px;
+        font-size: 13px;
+        padding: 4px 8px 4px 12px;
         border-radius: 999px;
         z-index: 25;
-        box-shadow: 0 0 12px rgba(255, 42, 59, 0.6);
+        box-shadow: 0 0 16px rgba(255, 42, 59, 0.7);
+        align-items: center;
+        gap: 8px;
       }
       #fs-badge.show {
-        display: block;
+        display: flex;
+      }
+      #fs-badge.banked {
+        background: linear-gradient(135deg, rgba(255, 179, 0, 0.95), rgba(184, 110, 0, 0.95));
+        border-color: #ffd700;
+        box-shadow: 0 0 16px rgba(255, 179, 0, 0.7);
+      }
+      .fs-toggle-btn {
+        appearance: none;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        color: #ffffff;
+        font-family: Rajdhani, sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: transform 0.15s ease, background 0.15s ease;
+      }
+      .fs-toggle-btn:hover {
+        background: rgba(255, 255, 255, 0.25);
+      }
+      .fs-toggle-btn:active {
+        transform: scale(0.92);
       }
     </style>
   </head>
@@ -456,7 +500,10 @@
     <div id="app">
       <div id="banner">DEMO MODE — No real money. Free-play only. 18+</div>
       <div id="game-root">
-        <div id="fs-badge"></div>
+        <div id="fs-badge">
+          <span id="fs-badge-text">⚡ FREE SPINS: 0</span>
+          <button type="button" id="btn-fs-toggle" class="fs-toggle-btn" title="Exit & save free spins for later">Save for Later</button>
+        </div>
         <div id="toast"></div>
       </div>
       <div id="hud">
@@ -495,6 +542,7 @@
           </div>
         </div>
         <div class="toolbar">
+          <button type="button" class="chip" id="btn-breakdown" title="View last win breakdown">Breakdown</button>
           <button type="button" class="chip" id="btn-paytable">Paytable</button>
           <button type="button" class="chip" id="btn-rules">Rules</button>
           <button type="button" class="chip" id="btn-session">Session</button>

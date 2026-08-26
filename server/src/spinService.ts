@@ -23,10 +23,11 @@ export function executeSpin(
   session: SessionState,
   config: GameConfig,
   betCents: number,
+  useFreeSpin = true,
 ): SpinResult {
-  const usedFreeSpin = session.freeSpinsRemaining > 0;
+  const willUseFreeSpin = useFreeSpin && session.freeSpinsRemaining > 0;
 
-  if (!usedFreeSpin) {
+  if (!willUseFreeSpin) {
     if (
       betCents < config.betting.minBetCents ||
       betCents > config.betting.maxBetCents
@@ -60,7 +61,7 @@ export function executeSpin(
   const stopIndices = rollStops(config, rng);
   const grid = buildGrid(config, stopIndices);
 
-  const multiplier = usedFreeSpin
+  const multiplier = willUseFreeSpin
     ? session.freeSpinMultiplier
     : 1;
 
@@ -96,7 +97,7 @@ export function executeSpin(
     scatterWin,
     balanceCents: session.balanceCents,
     freeSpinsRemaining: session.freeSpinsRemaining,
-    usedFreeSpin,
+    usedFreeSpin: willUseFreeSpin,
     freeSpinsJustAwarded,
     serverSeed,
     timestamp: new Date().toISOString(),
