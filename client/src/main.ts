@@ -10,6 +10,7 @@ import {
 import { createSession, getEmbedParams, spin } from "./api.js";
 import { SoundBus } from "./audio.js";
 import { GameScene } from "./gameScene.js";
+import { historyService } from "./historyService.js";
 import { SYMBOL_COLORS } from "./symbols.js";
 
 const sound = new SoundBus();
@@ -225,17 +226,6 @@ function buildPaytable() {
   `;
 }
 
-interface HistoryItem {
-  spinNum: number;
-  time: string;
-  betCents: number;
-  winCents: number;
-  usedFreeSpin: boolean;
-}
-
-const spinHistory: HistoryItem[] = [];
-let totalSpinCounter = 0;
-
 function buildSession() {
   const overviewEl = document.getElementById("session-overview-content")!;
   const historyEl = document.getElementById("session-history-content")!;
@@ -250,42 +240,7 @@ function buildSession() {
     <p><strong>${t(locale, "balance")}:</strong> ${formatZar(session.balanceCents)}</p>
   `;
 
-  if (spinHistory.length === 0) {
-    historyEl.innerHTML = `<p style="text-align:center; padding: 20px 0; color: #e0adb1;">No spins recorded in this session yet.<br>Press <strong>SPIN</strong> to play!</p>`;
-  } else {
-    const rows = spinHistory
-      .map((item) => {
-        const isWin = item.winCents > 0;
-        const betLabel = item.usedFreeSpin ? "FREE" : formatZar(item.betCents);
-        const outcomeLabel = isWin
-          ? `<span class="badge-win">WIN +${formatZar(item.winCents)}</span>`
-          : `<span class="badge-loss">LOSS R0.00</span>`;
-
-        return `<tr>
-        <td>#${item.spinNum}</td>
-        <td>${item.time}</td>
-        <td>${betLabel}</td>
-        <td>${outcomeLabel}</td>
-      </tr>`;
-      })
-      .join("");
-
-    historyEl.innerHTML = `
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Spin</th>
-            <th>Time</th>
-            <th>Bet</th>
-            <th>Outcome</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
-  }
+  historyService.render(historyEl);
 }
 
 async function doSpin() {
@@ -312,24 +267,8 @@ async function doSpin() {
     lastWinCents = result.totalWinCents;
     refreshMeters();
 
-    // Track spin in Game History (last 10 spins)
-    totalSpinCounter += 1;
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    spinHistory.unshift({
-      spinNum: totalSpinCounter,
-      time: timeStr,
-      betCents: result.usedFreeSpin ? 0 : result.betCents,
-      winCents: result.totalWinCents,
-      usedFreeSpin: result.usedFreeSpin,
-    });
-    if (spinHistory.length > 10) {
-      spinHistory.pop();
-    }
+    // Record spin result in History Service (stores up to last 10 spins)
+    historyService.recordSpin(result);
 
     await scene.playSpin(result);
 
