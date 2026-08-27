@@ -209,12 +209,19 @@ export class ReelBoard {
       this.container.addChild(sFrame);
     }
 
-    // Reel separator lines with clean silver feel
+    // Full 5x3 Grid matrix separator lines (both vertical and horizontal)
     const lines = new Graphics();
+    // 4 Vertical reel divider lines
     for (let i = 1; i < 5; i++) {
       lines.moveTo(i * this.cellW, 0);
       lines.lineTo(i * this.cellW, boardH);
-      lines.stroke({ width: 1.5, color: 0xd0d8e0, alpha: 0.7 });
+      lines.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
+    }
+    // 2 Horizontal row divider lines
+    for (let r = 1; r < this.rows; r++) {
+      lines.moveTo(0, r * this.cellH);
+      lines.lineTo(boardW, r * this.cellH);
+      lines.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
     }
     this.container.addChild(lines);
 
@@ -629,134 +636,518 @@ export class PaylineOverlay {
   }
 }
 
-/** Particle burst system for sparkling red and white diamonds */
-export class CoinBurst {
+/**
+ * Screen-wide Particle Animation Overlay System for Winning Combinations
+ * Renders cascading diamonds, 3D tumbling gold coins, faceted ruby gems,
+ * shooting comets, glowing shockwave ripples, and celebratory glitter showers
+ * directly over the existing game canvas.
+ */
+interface OverlayParticle {
+  g: Graphics;
+  type: "diamond" | "coin" | "ruby" | "confetti" | "star" | "sparkle";
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rot: number;
+  rotSpeed: number;
+  rotX?: number;
+  rotXSpeed?: number;
+  scale: number;
+  life: number;
+  maxLife: number;
+  color: number;
+  bounceCount: number;
+  trail?: Array<{ x: number; y: number; alpha: number }>;
+}
+
+interface OverlayShockwave {
+  g: Graphics;
+  x: number;
+  y: number;
+  r: number;
+  maxR: number;
+  color: number;
+  alpha: number;
+  width: number;
+}
+
+interface OverlayComet {
+  g: Graphics;
+  x: number;
+  y: number;
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  progress: number;
+  speed: number;
+  color: number;
+  trailGfx: Graphics;
+}
+
+export class ScreenWinParticleOverlay {
   readonly container = new Container();
-  private particles: Array<{
-    g: Graphics;
-    vx: number;
-    vy: number;
-    rotSpeed: number;
-    life: number;
-  }> = [];
-  private running = false;
+  private w: number;
+  private h: number;
 
-  burstAtPositions(
-    positions: Array<{ reel: number; row: number }>,
-    cellW: number,
-    cellH: number,
-    boardX: number,
-    boardY: number,
-    countPerCell = 14
-  ) {
-    positions.forEach((pos) => {
-      const cx = boardX + pos.reel * cellW + cellW / 2;
-      const cy = boardY + pos.row * cellH + cellH / 2;
+  private shockwaveContainer = new Container();
+  private cometContainer = new Container();
+  private particleContainer = new Container();
+  private glowContainer = new Container();
 
-      // Spawn radial shockwave ring in ruby red and diamond white
-      const shockwave = new Graphics();
-      shockwave.circle(0, 0, 8);
-      shockwave.stroke({ width: 3, color: 0xff2a3b, alpha: 0.95 });
-      shockwave.x = cx;
-      shockwave.y = cy;
-      this.container.addChild(shockwave);
+  private particles: OverlayParticle[] = [];
+  private shockwaves: OverlayShockwave[] = [];
+  private comets: OverlayComet[] = [];
 
-      let swRadius = 8;
-      let swAlpha = 0.95;
-      const animateShockwave = () => {
-        swRadius += 3.5;
-        swAlpha -= 0.04;
-        shockwave.clear();
-        shockwave.circle(0, 0, swRadius);
-        shockwave.stroke({ width: Math.max(1, 4 * swAlpha), color: 0xffffff, alpha: Math.max(0, swAlpha) });
-        if (swAlpha > 0) {
-          requestAnimationFrame(animateShockwave);
-        } else {
-          this.container.removeChild(shockwave);
-          shockwave.destroy();
+  private isRunning = false;
+  private animId: number | null = null;
+
+  constructor(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+
+    this.container.addChild(this.shockwaveContainer);
+    this.container.addChild(this.glowContainer);
+    this.container.addChild(this.cometContainer);
+    this.container.addChild(this.particleContainer);
+  }
+
+  resize(w: number, h: number) {
+    this.w = w;
+    this.h = h;
+  }
+
+  clear() {
+    this.particles.forEach((p) => {
+      this.particleContainer.removeChild(p.g);
+      p.g.destroy();
+    });
+    this.particles = [];
+
+    this.shockwaves.forEach((s) => {
+      this.shockwaveContainer.removeChild(s.g);
+      s.g.destroy();
+    });
+    this.shockwaves = [];
+
+    this.comets.forEach((c) => {
+      this.cometContainer.removeChild(c.g);
+      this.cometContainer.removeChild(c.trailGfx);
+      c.g.destroy();
+      c.trailGfx.destroy();
+    });
+    this.comets = [];
+
+    this.glowContainer.removeChildren();
+
+    if (this.animId) {
+      cancelAnimationFrame(this.animId);
+      this.animId = null;
+    }
+    this.isRunning = false;
+  }
+
+  /**
+   * Trigger the screen-overlay particle animation effect for a winning spin.
+   */
+  triggerWinEffect(options: {
+    positions: Array<{ x: number; y: number }>;
+    winTier?: "small" | "nice" | "big" | "mega";
+    totalWinCents?: number;
+    reducedMotion?: boolean;
+  }) {
+    const { positions, winTier = "small", reducedMotion = false } = options;
+
+    const countMultiplier = reducedMotion
+      ? 0.35
+      : winTier === "mega"
+      ? 2.8
+      : winTier === "big"
+      ? 2.0
+      : winTier === "nice"
+      ? 1.4
+      : 1.0;
+
+    const colors = [0xff2a3b, 0xffd700, 0xffffff, 0xd61c24, 0xff8000];
+
+    // 1. Shockwaves & Comet Emitters at each winning symbol position
+    positions.forEach((pos, idx) => {
+      // Staggered shockwaves
+      setTimeout(() => {
+        const swColor = colors[idx % colors.length];
+        this.addShockwave(pos.x, pos.y, swColor, winTier === "mega" ? 180 : 120);
+
+        if (!reducedMotion) {
+          // Add comet tracer shooting towards top-center of screen
+          this.addComet(
+            pos.x,
+            pos.y,
+            this.w / 2 + (Math.random() - 0.5) * (this.w * 0.4),
+            Math.max(40, pos.y - 120 - Math.random() * 80),
+            swColor
+          );
         }
-      };
-      animateShockwave();
+      }, idx * 60);
 
-      // Burst particles at symbol center
-      this.burst(cx, cy, countPerCell);
+      // Burst localized particles from each winning cell
+      const burstCount = Math.round(14 * countMultiplier);
+      for (let i = 0; i < burstCount; i++) {
+        this.spawnBurstParticle(pos.x, pos.y, colors[Math.floor(Math.random() * colors.length)]);
+      }
+    });
+
+    // 2. Full-Screen Celebratory Shower (Raining from top or exploding outward)
+    const screenShowerCount = Math.round((winTier === "mega" ? 80 : winTier === "big" ? 50 : winTier === "nice" ? 30 : 18) * (reducedMotion ? 0.4 : 1));
+    for (let i = 0; i < screenShowerCount; i++) {
+      const delay = Math.random() * 600;
+      setTimeout(() => {
+        this.spawnScreenParticle(winTier, colors[Math.floor(Math.random() * colors.length)]);
+      }, delay);
+    }
+
+    // 3. Side Cannons / Fountains for Nice / Big / Mega wins
+    if (winTier !== "small" && !reducedMotion) {
+      const fountainCount = winTier === "mega" ? 35 : winTier === "big" ? 22 : 14;
+      for (let i = 0; i < fountainCount; i++) {
+        setTimeout(() => {
+          // Left cannon
+          this.spawnCannonParticle(0, this.h * 0.85, 1, 0xffd700);
+          // Right cannon
+          this.spawnCannonParticle(this.w, this.h * 0.85, -1, 0xff2a3b);
+        }, Math.random() * 500);
+      }
+    }
+
+    if (!this.isRunning) {
+      this.isRunning = true;
+      this.loop();
+    }
+  }
+
+  private addShockwave(x: number, y: number, color: number, maxR = 120) {
+    const g = new Graphics();
+    this.shockwaveContainer.addChild(g);
+    this.shockwaves.push({
+      g,
+      x,
+      y,
+      r: 6,
+      maxR,
+      color,
+      alpha: 0.95,
+      width: 3.5,
     });
   }
 
-  burst(x: number, y: number, count = 32) {
-    for (let i = 0; i < count; i++) {
-      const g = new Graphics();
-      const randType = Math.random();
+  private addComet(startX: number, startY: number, targetX: number, targetY: number, color: number) {
+    const g = new Graphics();
+    const trailGfx = new Graphics();
+    this.cometContainer.addChild(trailGfx);
+    this.cometContainer.addChild(g);
 
-      if (randType > 0.4) {
-        // Sparkling White Diamond
-        const s = 5 + Math.random() * 6;
-        g.moveTo(0, -s);
-        g.lineTo(s * 0.75, 0);
-        g.lineTo(0, s);
-        g.lineTo(-s * 0.75, 0);
-        g.closePath();
-        g.fill(0xffffff);
-        g.stroke({ width: 1.5, color: 0xff2a3b, alpha: 0.9 });
-      } else if (randType > 0.2) {
-        // Ruby Red Gem
-        const s = 6 + Math.random() * 5;
-        g.rect(-s / 2, -s / 2, s, s);
-        g.fill(0xd61c24);
-        g.stroke({ width: 1, color: 0xffffff });
-        g.rotation = Math.PI / 4;
-      } else {
-        // Crimson Diamond Star
-        g.star(0, 0, 4, 8 + Math.random() * 4, 3);
-        g.fill(0xff2a3b);
-        g.stroke({ width: 1, color: 0xffffff });
-      }
+    g.circle(0, 0, 4.5);
+    g.fill(0xffffff);
+    g.stroke({ width: 2, color });
 
-      g.x = x;
-      g.y = y;
-      this.container.addChild(g);
-
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 4 + Math.random() * 10;
-      this.particles.push({
-        g,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 5,
-        rotSpeed: (Math.random() - 0.5) * 0.25,
-        life: 1,
-      });
-    }
-
-    if (!this.running) {
-      this.running = true;
-      this.tick();
-    }
+    this.comets.push({
+      g,
+      trailGfx,
+      x: startX,
+      y: startY,
+      startX,
+      startY,
+      targetX,
+      targetY,
+      progress: 0,
+      speed: 0.035 + Math.random() * 0.02,
+      color,
+    });
   }
 
-  private tick = () => {
+  private spawnBurstParticle(cx: number, cy: number, color: number) {
+    const g = new Graphics();
+    this.particleContainer.addChild(g);
+
+    const types: Array<OverlayParticle["type"]> = ["diamond", "coin", "ruby", "star", "sparkle"];
+    const type = types[Math.floor(Math.random() * types.length)];
+
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3.5 + Math.random() * 7.5;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed - (3 + Math.random() * 3);
+
+    const maxLife = 65 + Math.random() * 45;
+
+    this.particles.push({
+      g,
+      type,
+      x: cx,
+      y: cy,
+      vx,
+      vy,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3,
+      rotX: Math.random() * Math.PI * 2,
+      rotXSpeed: (Math.random() - 0.5) * 0.25,
+      scale: 0.75 + Math.random() * 0.5,
+      life: maxLife,
+      maxLife,
+      color,
+      bounceCount: 0,
+    });
+  }
+
+  private spawnScreenParticle(winTier: string, color: number) {
+    const g = new Graphics();
+    this.particleContainer.addChild(g);
+
+    const types: Array<OverlayParticle["type"]> = ["diamond", "coin", "confetti", "star", "sparkle", "ruby"];
+    const type = types[Math.floor(Math.random() * types.length)];
+
+    const x = Math.random() * this.w;
+    const y = -20 - Math.random() * 40;
+    const vx = (Math.random() - 0.5) * 2.8;
+    const vy = 2.0 + Math.random() * 4.5;
+    const maxLife = 90 + Math.random() * 60;
+
+    this.particles.push({
+      g,
+      type,
+      x,
+      y,
+      vx,
+      vy,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.2,
+      rotX: Math.random() * Math.PI * 2,
+      rotXSpeed: (Math.random() - 0.5) * 0.2,
+      scale: 0.8 + Math.random() * 0.6,
+      life: maxLife,
+      maxLife,
+      color,
+      bounceCount: 0,
+    });
+  }
+
+  private spawnCannonParticle(x: number, y: number, dir: 1 | -1, color: number) {
+    const g = new Graphics();
+    this.particleContainer.addChild(g);
+
+    const types: Array<OverlayParticle["type"]> = ["coin", "diamond", "confetti", "star"];
+    const type = types[Math.floor(Math.random() * types.length)];
+
+    const angle = (dir === 1 ? -Math.PI * 0.35 : -Math.PI * 0.65) + (Math.random() - 0.5) * 0.45;
+    const speed = 7.5 + Math.random() * 9.0;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed;
+    const maxLife = 85 + Math.random() * 50;
+
+    this.particles.push({
+      g,
+      type,
+      x,
+      y,
+      vx,
+      vy,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3,
+      rotX: Math.random() * Math.PI * 2,
+      rotXSpeed: (Math.random() - 0.5) * 0.2,
+      scale: 0.85 + Math.random() * 0.6,
+      life: maxLife,
+      maxLife,
+      color,
+      bounceCount: 0,
+    });
+  }
+
+  private loop = () => {
+    // 1. Update Shockwaves
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const s = this.shockwaves[i];
+      s.r += 4.5;
+      s.alpha = Math.max(0, 0.95 * (1 - s.r / s.maxR));
+
+      s.g.clear();
+      s.g.circle(s.x, s.y, s.r);
+      s.g.stroke({
+        width: Math.max(1, s.width * (s.alpha / 0.95)),
+        color: s.color,
+        alpha: s.alpha,
+      });
+
+      // Secondary inner glow ring
+      s.g.circle(s.x, s.y, Math.max(1, s.r * 0.85));
+      s.g.stroke({
+        width: 1.5,
+        color: 0xffffff,
+        alpha: s.alpha * 0.75,
+      });
+
+      if (s.r >= s.maxR || s.alpha <= 0) {
+        this.shockwaveContainer.removeChild(s.g);
+        s.g.destroy();
+        this.shockwaves.splice(i, 1);
+      }
+    }
+
+    // 2. Update Comets
+    for (let i = this.comets.length - 1; i >= 0; i--) {
+      const c = this.comets[i];
+      c.progress += c.speed;
+
+      const t = Math.min(1, c.progress);
+      const easeT = 1 - Math.pow(1 - t, 2.5);
+
+      const curX = c.startX + (c.targetX - c.startX) * easeT;
+      // Arc path
+      const arcHeight = 40 * Math.sin(t * Math.PI);
+      const curY = c.startY + (c.targetY - c.startY) * easeT - arcHeight;
+
+      c.g.x = curX;
+      c.g.y = curY;
+      c.g.alpha = 1 - t * 0.8;
+
+      // Draw luminous comet trail
+      c.trailGfx.clear();
+      c.trailGfx.moveTo(c.startX, c.startY);
+      c.trailGfx.quadraticCurveTo(
+        (c.startX + curX) / 2,
+        (c.startY + curY) / 2 - arcHeight,
+        curX,
+        curY
+      );
+      c.trailGfx.stroke({
+        width: Math.max(1, 3.5 * (1 - t)),
+        color: c.color,
+        alpha: Math.max(0, 0.85 * (1 - t)),
+      });
+
+      if (t >= 1) {
+        // Spawn small spark burst at comet apex
+        for (let b = 0; b < 6; b++) {
+          this.spawnBurstParticle(c.targetX, c.targetY, c.color);
+        }
+        this.cometContainer.removeChild(c.g);
+        this.cometContainer.removeChild(c.trailGfx);
+        c.g.destroy();
+        c.trailGfx.destroy();
+        this.comets.splice(i, 1);
+      }
+    }
+
+    // 3. Update Particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
-      p.vy += 0.28; // gravity
-      p.g.x += p.vx;
-      p.g.y += p.vy;
-      p.g.rotation += p.rotSpeed;
-      p.life -= 0.016;
-      p.g.alpha = Math.max(0, p.life);
+      p.vy += 0.24; // smooth gravity
+      p.vx *= 0.985; // air friction
+      p.x += p.vx;
+      p.y += p.vy;
 
-      if (p.life <= 0) {
-        this.container.removeChild(p.g);
+      p.rot += p.rotSpeed;
+      if (p.rotX !== undefined && p.rotXSpeed !== undefined) {
+        p.rotX += p.rotXSpeed;
+      }
+
+      p.life -= 1;
+      const alpha = Math.max(0, Math.min(1, p.life / 20));
+
+      // Floor bounce near bottom of canvas
+      if (p.y >= this.h - 14 && p.bounceCount < 2) {
+        p.vy = -p.vy * 0.42;
+        p.vx *= 0.65;
+        p.y = this.h - 14;
+        p.bounceCount++;
+      }
+
+      p.g.x = p.x;
+      p.g.y = p.y;
+      p.g.rotation = p.rot;
+      p.g.alpha = alpha;
+
+      const scaleX = p.rotX !== undefined ? Math.abs(Math.cos(p.rotX)) : 1;
+      p.g.scale.set(p.scale * scaleX, p.scale);
+
+      // Render custom procedural particle shapes
+      p.g.clear();
+
+      if (p.type === "diamond") {
+        // Sparkling 4-point faceted diamond
+        const s = 7;
+        p.g.moveTo(0, -s);
+        p.g.lineTo(s * 0.75, 0);
+        p.g.lineTo(0, s);
+        p.g.lineTo(-s * 0.75, 0);
+        p.g.closePath();
+        p.g.fill(0xffffff);
+        p.g.stroke({ width: 1.5, color: p.color });
+
+        // Diamond facet highlights
+        p.g.moveTo(0, -s);
+        p.g.lineTo(0, s);
+        p.g.stroke({ width: 1, color: 0xffffff, alpha: 0.8 });
+      } else if (p.type === "coin") {
+        // 3D Gold / Platinum Coin
+        const r = 7;
+        p.g.ellipse(0, 0, r, r);
+        p.g.fill(p.color === 0xff2a3b ? 0xd61c24 : 0xffd700);
+        p.g.stroke({ width: 1.5, color: 0xffffff });
+
+        // Coin inner ring bevel
+        p.g.ellipse(0, 0, r * 0.6, r * 0.6);
+        p.g.stroke({ width: 1, color: 0xffa000, alpha: 0.85 });
+      } else if (p.type === "ruby") {
+        // Faceted 6-sided Ruby Jewel
+        const s = 6;
+        p.g.moveTo(0, -s);
+        p.g.lineTo(s * 0.9, -s * 0.3);
+        p.g.lineTo(s * 0.9, s * 0.4);
+        p.g.lineTo(0, s);
+        p.g.lineTo(-s * 0.9, s * 0.4);
+        p.g.lineTo(-s * 0.9, -s * 0.3);
+        p.g.closePath();
+        p.g.fill(0xd61c24);
+        p.g.stroke({ width: 1.2, color: 0xffffff });
+      } else if (p.type === "star") {
+        // 4-point Diamond Star flare
+        p.g.star(0, 0, 4, 8, 3.5);
+        p.g.fill(p.color);
+        p.g.stroke({ width: 1, color: 0xffffff });
+      } else if (p.type === "sparkle") {
+        // Delicate cross glimmer
+        p.g.moveTo(0, -5);
+        p.g.lineTo(0, 5);
+        p.g.moveTo(-5, 0);
+        p.g.lineTo(5, 0);
+        p.g.stroke({ width: 2, color: 0xffffff });
+        p.g.circle(0, 0, 2);
+        p.g.fill(p.color);
+      } else {
+        // Ribbon confetti strip
+        p.g.rect(-4.5, -2.5, 9, 5);
+        p.g.fill(p.color);
+      }
+
+      if (p.life <= 0 || p.y > this.h + 50) {
+        this.particleContainer.removeChild(p.g);
         p.g.destroy();
         this.particles.splice(i, 1);
       }
     }
 
-    if (this.particles.length) {
-      requestAnimationFrame(this.tick);
+    const hasActiveEffects =
+      this.particles.length > 0 || this.shockwaves.length > 0 || this.comets.length > 0;
+
+    if (hasActiveEffects) {
+      this.animId = requestAnimationFrame(this.loop);
     } else {
-      this.running = false;
+      this.isRunning = false;
+      this.animId = null;
     }
   };
 }
+
 
 /**
  * Multi-Layer Visual Animation Effect for Big Win & Mega Win on Canvas
@@ -1855,5 +2246,327 @@ export class WinBreakdownOverlay {
   }
 }
 
+/**
+ * 20 Classic 5x3 Paylines Definition & High-Contrast Neon Palette
+ */
+const ALL_20_PAYLINES: number[][] = [
+  [1, 1, 1, 1, 1], // 1: Center Row
+  [0, 0, 0, 0, 0], // 2: Top Row
+  [2, 2, 2, 2, 2], // 3: Bottom Row
+  [0, 1, 2, 1, 0], // 4: V-Shape
+  [2, 1, 0, 1, 2], // 5: Inverted V
+  [0, 0, 1, 2, 2], // 6: Down Slope
+  [2, 2, 1, 0, 0], // 7: Up Slope
+  [1, 0, 0, 0, 1], // 8: Crown Top
+  [1, 2, 2, 2, 1], // 9: Crown Bottom
+  [0, 1, 1, 1, 0], // 10: Shallow V
+  [2, 1, 1, 1, 2], // 11: Shallow Peak
+  [1, 0, 1, 2, 1], // 12: Zig-Zag Down
+  [1, 2, 1, 0, 1], // 13: Zig-Zag Up
+  [0, 1, 0, 1, 0], // 14: Top Waves
+  [2, 1, 2, 1, 2], // 15: Bottom Waves
+  [1, 1, 0, 1, 1], // 16: Top Arch
+  [1, 1, 2, 1, 1], // 17: Bottom Arch
+  [0, 0, 1, 0, 0], // 18: Middle Dip
+  [2, 2, 1, 2, 2], // 19: Middle Rise
+  [0, 2, 0, 2, 0], // 20: Extreme W
+];
 
+const PAYLINE_PALETTE: number[] = [
+  0xff2a3b, // 1: Ruby Red
+  0x00e676, // 2: Electric Emerald
+  0x00d4ff, // 3: Diamond Cyan
+  0xffd700, // 4: Goldenrod
+  0xff007f, // 5: Hot Pink
+  0xff9100, // 6: Neon Amber
+  0xaa00ff, // 7: Laser Violet
+  0x00f5d4, // 8: Mint Turquoise
+  0xff3d00, // 9: Sunset Orange
+  0x76ff03, // 10: Bright Lime
+  0xff1744, // 11: Crimson Red
+  0x2979ff, // 12: Sky Blue
+  0xf50057, // 13: Rose Magenta
+  0x00e5ff, // 14: Electric Blue
+  0xffea00, // 15: Cyber Yellow
+  0x651fff, // 16: Deep Indigo
+  0x1de9b6, // 17: Aqua Marine
+  0xff6d00, // 18: Tangerine
+  0xff4081, // 19: Coral Pink
+  0xffffff, // 20: Diamond White
+];
 
+export type GridDisplayMode = "all-grid" | "neon-matrix" | "all-paylines" | "subtle";
+
+/**
+ * FullGridOverlay
+ * Renders high-contrast, crystal-clear 5x3 grid lines (all vertical and horizontal rows),
+ * individual glowing cell bevels, diamond intersection rivets, numbered side payline badges,
+ * and the interactive full 20-payline laser roadmap.
+ */
+export class FullGridOverlay {
+  readonly container = new Container();
+  private cellW: number;
+  private cellH: number;
+  private cols = 5;
+  private rows = 3;
+
+  private gridGfx = new Graphics();
+  private paylinesGfx = new Graphics();
+  private cellFramesGfx = new Graphics();
+  private animId: number | null = null;
+
+  private mode: GridDisplayMode = "all-grid";
+  private activeHoverPayline: number | null = null;
+  private pulsePhase = 0;
+
+  constructor(cellW: number, cellH: number) {
+    this.cellW = cellW;
+    this.cellH = cellH;
+
+    this.container.addChild(this.cellFramesGfx);
+    this.container.addChild(this.gridGfx);
+    this.container.addChild(this.paylinesGfx);
+
+    this.redraw();
+    this.startAnimation();
+  }
+
+  public setDimensions(cellW: number, cellH: number) {
+    this.cellW = cellW;
+    this.cellH = cellH;
+    this.redraw();
+  }
+
+  public setMode(mode: GridDisplayMode) {
+    this.mode = mode;
+    this.redraw();
+  }
+
+  public cycleMode(): GridDisplayMode {
+    const modes: GridDisplayMode[] = ["all-grid", "neon-matrix", "all-paylines", "subtle"];
+    const currIdx = modes.indexOf(this.mode);
+    const nextIdx = (currIdx + 1) % modes.length;
+    this.mode = modes[nextIdx];
+    this.redraw();
+    return this.mode;
+  }
+
+  public getMode(): GridDisplayMode {
+    return this.mode;
+  }
+
+  public hoverPayline(lineIndex: number | null) {
+    this.activeHoverPayline = lineIndex;
+    this.redraw();
+  }
+
+  public pulse() {
+    this.pulsePhase = 1.0;
+  }
+
+  private startAnimation() {
+    let tick = 0;
+    const loop = () => {
+      tick += 0.04;
+      if (this.pulsePhase > 0) {
+        this.pulsePhase = Math.max(0, this.pulsePhase - 0.03);
+      }
+
+      if (this.mode === "neon-matrix" || this.mode === "all-paylines" || this.pulsePhase > 0) {
+        this.drawDynamicEffects(tick);
+      }
+
+      this.animId = requestAnimationFrame(loop);
+    };
+    loop();
+  }
+
+  public redraw() {
+    const boardW = this.cellW * this.cols;
+    const boardH = this.cellH * this.rows;
+
+    this.gridGfx.clear();
+    this.cellFramesGfx.clear();
+    this.paylinesGfx.clear();
+
+    // 1. Draw Individual Cell Bevel Borders (15 cells)
+    for (let c = 0; c < this.cols; c++) {
+      for (let r = 0; r < this.rows; r++) {
+        const cx = c * this.cellW;
+        const cy = r * this.cellH;
+        const pad = 2;
+
+        if (this.mode === "neon-matrix") {
+          // Neon cyber cell frame with glowing aura
+          this.cellFramesGfx.roundRect(cx + pad, cy + pad, this.cellW - pad * 2, this.cellH - pad * 2, 6);
+          this.cellFramesGfx.stroke({ width: 1.5, color: 0xff2a3b, alpha: 0.45 });
+          this.cellFramesGfx.fill({ color: 0xff2a3b, alpha: 0.04 });
+        } else if (this.mode === "all-grid" || this.mode === "all-paylines") {
+          // Clean subtle cell framing
+          this.cellFramesGfx.roundRect(cx + pad, cy + pad, this.cellW - pad * 2, this.cellH - pad * 2, 4);
+          this.cellFramesGfx.stroke({ width: 1, color: 0xffffff, alpha: 0.12 });
+          this.cellFramesGfx.fill({ color: 0xffffff, alpha: 0.02 });
+        }
+      }
+    }
+
+    // 2. Draw ALL Primary Grid Lines (4 vertical + 2 horizontal + outer frame)
+    const isNeon = this.mode === "neon-matrix";
+    const lineColor = isNeon ? 0xff3344 : 0xe0e6ed;
+    const lineAlpha = this.mode === "subtle" ? 0.4 : isNeon ? 0.95 : 0.85;
+    const lineWidth = isNeon ? 2.5 : 2.0;
+
+    // Outer Board Glow Stroke
+    this.gridGfx.roundRect(0, 0, boardW, boardH, 10);
+    this.gridGfx.stroke({ width: lineWidth + 1, color: isNeon ? 0xd61c24 : 0xffffff, alpha: lineAlpha });
+
+    // 4 Vertical Divider Lines
+    for (let c = 1; c < this.cols; c++) {
+      const x = c * this.cellW;
+      // Soft shadow line
+      this.gridGfx.moveTo(x + 1, 0);
+      this.gridGfx.lineTo(x + 1, boardH);
+      this.gridGfx.stroke({ width: lineWidth, color: 0x000000, alpha: 0.6 });
+
+      // Core crisp line
+      this.gridGfx.moveTo(x, 0);
+      this.gridGfx.lineTo(x, boardH);
+      this.gridGfx.stroke({ width: lineWidth, color: lineColor, alpha: lineAlpha });
+    }
+
+    // 2 Horizontal Divider Lines
+    for (let r = 1; r < this.rows; r++) {
+      const y = r * this.cellH;
+      // Soft shadow line
+      this.gridGfx.moveTo(0, y + 1);
+      this.gridGfx.lineTo(boardW, y + 1);
+      this.gridGfx.stroke({ width: lineWidth, color: 0x000000, alpha: 0.6 });
+
+      // Core crisp line
+      this.gridGfx.moveTo(0, y);
+      this.gridGfx.lineTo(boardW, y);
+      this.gridGfx.stroke({ width: lineWidth, color: lineColor, alpha: lineAlpha });
+    }
+
+    // 3. Draw Diamond Intersection Rivets at all 8 internal grid junctions
+    for (let c = 1; c < this.cols; c++) {
+      for (let r = 1; r < this.rows; r++) {
+        const jx = c * this.cellW;
+        const jy = r * this.cellH;
+        const dSize = isNeon ? 6.5 : 5.0;
+
+        // Outer glow
+        this.gridGfx.moveTo(jx, jy - dSize - 2);
+        this.gridGfx.lineTo(jx + dSize + 2, jy);
+        this.gridGfx.lineTo(jx, jy + dSize + 2);
+        this.gridGfx.lineTo(jx - dSize - 2, jy);
+        this.gridGfx.closePath();
+        this.gridGfx.fill({ color: isNeon ? 0xff2a3b : 0xd61c24, alpha: 0.6 });
+
+        // Core diamond
+        this.gridGfx.moveTo(jx, jy - dSize);
+        this.gridGfx.lineTo(jx + dSize, jy);
+        this.gridGfx.lineTo(jx, jy + dSize);
+        this.gridGfx.lineTo(jx - dSize, jy);
+        this.gridGfx.closePath();
+        this.gridGfx.fill({ color: 0xffffff, alpha: 0.95 });
+        this.gridGfx.stroke({ width: 1.2, color: 0xd61c24, alpha: 0.9 });
+      }
+    }
+
+    // 4. Render All 20 Paylines Laser Roadmap (if active or if hovering a single line)
+    if (this.mode === "all-paylines") {
+      this.renderAllPaylineLasers();
+    } else if (this.activeHoverPayline !== null) {
+      this.renderSinglePaylineLaser(this.activeHoverPayline);
+    }
+  }
+
+  private renderAllPaylineLasers() {
+    this.paylinesGfx.clear();
+
+    ALL_20_PAYLINES.forEach((path, idx) => {
+      const color = PAYLINE_PALETTE[idx % PAYLINE_PALETTE.length];
+      const g = this.paylinesGfx;
+
+      // Draw glowing laser path
+      const startX = 0 * this.cellW + this.cellW / 2;
+      const startY = path[0] * this.cellH + this.cellH / 2;
+
+      g.moveTo(startX, startY);
+
+      // Start Node Dot
+      g.circle(startX, startY, 4.5);
+      g.fill({ color, alpha: 0.95 });
+      g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
+
+      for (let reel = 1; reel < 5; reel++) {
+        const row = path[reel];
+        const px = reel * this.cellW + this.cellW / 2;
+        const py = row * this.cellH + this.cellH / 2;
+
+        g.lineTo(px, py);
+
+        // Junction Dot
+        g.circle(px, py, 3.5);
+        g.fill({ color, alpha: 0.9 });
+      }
+
+      g.stroke({ width: 2.2, color, alpha: 0.85 });
+    });
+  }
+
+  private renderSinglePaylineLaser(lineIdx: number) {
+    this.paylinesGfx.clear();
+    const path = ALL_20_PAYLINES[lineIdx];
+    if (!path) return;
+
+    const color = PAYLINE_PALETTE[lineIdx % PAYLINE_PALETTE.length];
+    const g = this.paylinesGfx;
+
+    const startX = 0 * this.cellW + this.cellW / 2;
+    const startY = path[0] * this.cellH + this.cellH / 2;
+
+    // Glowing halo beam
+    g.moveTo(startX, startY);
+    for (let reel = 1; reel < 5; reel++) {
+      const px = reel * this.cellW + this.cellW / 2;
+      const py = path[reel] * this.cellH + this.cellH / 2;
+      g.lineTo(px, py);
+    }
+    g.stroke({ width: 8, color, alpha: 0.45 });
+
+    // Sharp core laser
+    g.moveTo(startX, startY);
+    g.circle(startX, startY, 6.5);
+    g.fill(color);
+    g.stroke({ width: 2, color: 0xffffff });
+
+    for (let reel = 1; reel < 5; reel++) {
+      const px = reel * this.cellW + this.cellW / 2;
+      const py = path[reel] * this.cellH + this.cellH / 2;
+      g.lineTo(px, py);
+      g.circle(px, py, 5.5);
+      g.fill(color);
+      g.stroke({ width: 1.5, color: 0xffffff });
+    }
+    g.stroke({ width: 3.5, color: 0xffffff, alpha: 0.95 });
+  }
+
+  private drawDynamicEffects(tick: number) {
+    if (this.mode === "neon-matrix") {
+      const alphaPulse = 0.75 + Math.sin(tick * 3) * 0.25;
+      this.gridGfx.alpha = alphaPulse;
+    } else {
+      this.gridGfx.alpha = 1.0;
+    }
+  }
+
+  public destroy() {
+    if (this.animId) {
+      cancelAnimationFrame(this.animId);
+      this.animId = null;
+    }
+    this.container.destroy({ children: true });
+  }
+}

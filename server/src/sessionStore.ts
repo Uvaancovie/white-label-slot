@@ -46,3 +46,15 @@ export function getSession(sessionId: string): SessionState | undefined {
 export function saveSession(session: SessionState): void {
   sessions.set(session.sessionId, session);
 }
+
+export function depositSession(
+  sessionId: string,
+  amountCents: number,
+): SessionState | undefined {
+  const session = sessions.get(sessionId);
+  if (!session) return undefined;
+  session.balanceCents += Math.max(0, amountCents);
+  sessions.set(sessionId, session);
+  return session;
+}
+

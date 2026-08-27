@@ -49,3 +49,37 @@ export async function spin(
   });
   return parseJson(res);
 }
+
+export async function depositFunds(
+  sessionId: string,
+  amountCents: number,
+  method = "card",
+  metadata?: Record<string, unknown>,
+): Promise<{ ok: boolean; balanceCents: number; depositedCents: number }> {
+  const res = await fetch("/api/deposit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, amountCents, method, metadata }),
+  });
+  return parseJson(res);
+}
+
+export interface CryptoRatesResponse {
+  ok: boolean;
+  source: string;
+  updatedAt: string;
+  rates: Record<
+    string,
+    {
+      zar: number;
+      usd: number;
+      change24h: number;
+    }
+  >;
+}
+
+export async function fetchCryptoRates(): Promise<CryptoRatesResponse> {
+  const res = await fetch("/api/crypto-rates");
+  return parseJson<CryptoRatesResponse>(res);
+}
+

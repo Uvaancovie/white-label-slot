@@ -2,12 +2,14 @@ import { Application, Container, Graphics, Text } from "pixi.js";
 import type { GameConfig, SpinResult, SymbolId } from "@sa-slot/shared";
 import {
   BigWinModal,
-  CoinBurst,
   DiamondBackground,
   FlashImpactOverlay,
   FloatingWinManager,
+  FullGridOverlay,
+  type GridDisplayMode,
   PaylineOverlay,
   ReelBoard,
+  ScreenWinParticleOverlay,
   WinBreakdownOverlay,
   WinHighlighter,
 } from "./reels.js";
@@ -16,11 +18,12 @@ import { SoundBus } from "./audio.js";
 export class GameScene {
   readonly app: Application;
   private board!: ReelBoard;
+  private fullGridOverlay!: FullGridOverlay;
   private highlight!: WinHighlighter;
   private paylineOverlay!: PaylineOverlay;
   private floatingWins!: FloatingWinManager;
   private flashOverlay!: FlashImpactOverlay;
-  private coins!: CoinBurst;
+  private winParticleOverlay!: ScreenWinParticleOverlay;
   private bigWinModal!: BigWinModal;
   private breakdownOverlay!: WinBreakdownOverlay;
   private diamondBg!: DiamondBackground;
@@ -104,6 +107,12 @@ export class GameScene {
     this.board.container.y = 54;
     this.root.addChild(this.board.container);
 
+    // Full 5x3 Grid Matrix Overlay with all lines, cell frames, and 20 payline roadmap
+    this.fullGridOverlay = new FullGridOverlay(this.cellW, this.cellH);
+    this.fullGridOverlay.container.x = this.board.container.x;
+    this.fullGridOverlay.container.y = this.board.container.y;
+    this.root.addChild(this.fullGridOverlay.container);
+
     this.highlight = new WinHighlighter(this.cellW, this.cellH);
     this.highlight.container.x = this.board.container.x;
     this.highlight.container.y = this.board.container.y;
@@ -122,8 +131,9 @@ export class GameScene {
     this.flashOverlay = new FlashImpactOverlay(w, h);
     this.root.addChild(this.flashOverlay.container);
 
-    this.coins = new CoinBurst();
-    this.root.addChild(this.coins.container);
+    // Screen-wide Particle Animation Overlay System
+    this.winParticleOverlay = new ScreenWinParticleOverlay(w, h);
+    this.root.addChild(this.winParticleOverlay.container);
 
     this.bigWinModal = new BigWinModal(w, h);
     this.root.addChild(this.bigWinModal.container);
@@ -167,11 +177,19 @@ export class GameScene {
 
     if (this.board) {
       this.board.container.x = (w - this.cellW * 5) / 2;
+      if (this.fullGridOverlay) {
+        this.fullGridOverlay.container.x = this.board.container.x;
+        this.fullGridOverlay.container.y = this.board.container.y;
+        this.fullGridOverlay.setDimensions(this.cellW, this.cellH);
+      }
       this.highlight.container.x = this.board.container.x;
       this.paylineOverlay.container.x = this.board.container.x;
       this.floatingWins.container.x = this.board.container.x;
     }
 
+    if (this.winParticleOverlay) {
+      this.winParticleOverlay.resize(w, h);
+    }
     if (this.bigWinModal) {
       this.bigWinModal.resize(w, h);
     }
@@ -180,6 +198,33 @@ export class GameScene {
     }
     if (this.flashOverlay) {
       this.flashOverlay.resize(w, h);
+    }
+  }
+
+  cycleGridDisplayMode(): GridDisplayMode {
+    if (!this.fullGridOverlay) return "all-grid";
+    return this.fullGridOverlay.cycleMode();
+  }
+
+  setGridDisplayMode(mode: GridDisplayMode) {
+    if (this.fullGridOverlay) {
+      this.fullGridOverlay.setMode(mode);
+    }
+  }
+
+  getGridDisplayMode(): GridDisplayMode {
+    return this.fullGridOverlay ? this.fullGridOverlay.getMode() : "all-grid";
+  }
+
+  hoverPayline(lineIndex: number | null) {
+    if (this.fullGridOverlay) {
+      this.fullGridOverlay.hoverPayline(lineIndex);
+    }
+  }
+
+  pulseGrid() {
+    if (this.fullGridOverlay) {
+      this.fullGridOverlay.pulse();
     }
   }
 
@@ -232,14 +277,17 @@ export class GameScene {
     this.highlight.clear();
     this.paylineOverlay.clear();
     this.floatingWins.clear();
+    this.winParticleOverlay.clear();
     this.breakdownOverlay.hide();
     this.sound.spin();
     this.diamondBg.setSpinning(true);
+    this.pulseGrid();
 
     try {
       await this.board.spinTo(result.grid);
 
       if (result.totalWinCents > 0) {
+        this.pulseGrid();
         const positions = [
           ...result.lineWins.flatMap((w) => w.positions),
           ...(result.scatterWin?.positions ?? []),
@@ -256,18 +304,31 @@ export class GameScene {
         this.highlight.show(unique);
         this.paylineOverlay.drawLines(result.lineWins, this.config.paylines);
 
-        // Trigger particle explosions at all winning symbol coordinates on the reels
-        this.coins.burstAtPositions(
-          unique,
-          this.cellW,
-          this.cellH,
-          this.board.container.x,
-          this.board.container.y,
-          12
-        );
-
         const isMega = result.totalWinCents >= result.betCents * 25;
         const isBig = result.totalWinCents >= result.betCents * 10;
+        const isNice = result.totalWinCents >= result.betCents * 3;
+
+        const winTier: "small" | "nice" | "big" | "mega" = isMega
+          ? "mega"
+          : isBig
+          ? "big"
+          : isNice
+          ? "nice"
+          : "small";
+
+        // Convert grid cell positions to canvas pixel positions
+        const pixelPositions = unique.map((pos) => ({
+          x: this.board.container.x + pos.reel * this.cellW + this.cellW / 2,
+          y: this.board.container.y + pos.row * this.cellH + this.cellH / 2,
+        }));
+
+        // Trigger Screen-wide Particle Animation Effect
+        this.winParticleOverlay.triggerWinEffect({
+          positions: pixelPositions,
+          winTier,
+          totalWinCents: result.totalWinCents,
+          reducedMotion: this.reducedMotion,
+        });
 
         this.flashOverlay.triggerFlash(isMega ? 0xffd700 : 0xffffff, 250);
 
@@ -292,13 +353,9 @@ export class GameScene {
           }
         }
 
-        const cx = this.board.container.x + (this.cellW * 5) / 2;
-        const cy = this.board.container.y + (this.cellH * 3) / 2;
-
         if (isBig || isMega) {
           this.sound.win(isBig, isMega);
           this.shakeScreen(450, isMega ? 12 : 7);
-          this.coins.burst(cx, cy, isMega ? 52 : 32);
 
           await this.bigWinModal.show(
             isMega ? "MEGA WIN!" : "BIG WIN!",
@@ -309,7 +366,6 @@ export class GameScene {
         } else {
           this.sound.win(false, false);
           this.shakeScreen(180, 4);
-          this.coins.burst(cx, cy, 18);
         }
 
         // Display winning symbols overlay breakdown
