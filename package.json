@@ -12,6 +12,7 @@
     "dev": "npm run build -w shared && npm run dev -w server",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
     "pages:build": "npm run build -w shared && npm run build -w client",
+    "pages:deploy": "wrangler pages deploy client/dist --project-name springbok-slot",
     "pages:dev": "wrangler pages dev client/dist --kv SESSIONS",
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client"
