@@ -8,7 +8,7 @@ import {
   type GameConfig,
   type SessionState,
   type SpinResult,
-} from "../shared/src/index.js";
+} from "./shared/src/index.js";
 
 export interface Env {
   SESSIONS?: KVNamespace;
