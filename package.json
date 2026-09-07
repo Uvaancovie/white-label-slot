@@ -9,12 +9,13 @@
     "shared"
   ],
   "scripts": {
-    "dev": "npm run build -w shared && npm run dev -w server",
-    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "dev": "npm run build -w shared && vite",
+    "build": "npm run build -w shared && vite build",
+    "preview": "vite preview --port 3000 --host 0.0.0.0",
     "pages:build": "npm run build -w shared && npm run build -w client",
     "pages:deploy": "wrangler pages deploy client/dist --project-name springbok-slot",
     "pages:dev": "wrangler pages dev client/dist --kv SESSIONS",
-    "start": "npm run start -w server",
+    "start": "vite preview --port 3000 --host 0.0.0.0",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client"
   },
   "devDependencies": {
@@ -23,5 +24,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "vite": "^8.2.2"
   }
 }
