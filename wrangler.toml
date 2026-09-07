@@ -1,0 +1,11 @@
+name = "springbok-rush"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "client/dist"
+
+# KV namespace for session persistence across edge locations
+# Run `npx wrangler kv:namespace create SESSIONS` and replace the ID below
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "SESSIONS_KV_ID"
+preview_id = "SESSIONS_PREVIEW_KV_ID"
