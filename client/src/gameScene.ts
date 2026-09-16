@@ -172,19 +172,64 @@ export class GameScene {
       alpha: 0.35,
     });
 
+    if (this.diamondBg) {
+      this.diamondBg.resize(w, h);
+    }
+
     this.title.x = w / 2;
     this.renderAccentBar(w);
 
+    // Dynamically calculate cell size based on container dimensions
+    // Title takes ~50px from top, leave ~15px bottom buffer
+    const availableW = Math.max(100, w - 24);
+    const availableH = Math.max(100, h - 70);
+
+    const cellWFromW = Math.floor(availableW / 5);
+    const cellHFromH = Math.floor(availableH / this.config.layout.rows);
+
+    // Keep aspect ratio close to 1.05
+    let calculatedCellW = cellWFromW;
+    let calculatedCellH = Math.floor(calculatedCellW * 1.05);
+
+    if (calculatedCellH * this.config.layout.rows > availableH) {
+      calculatedCellH = cellHFromH;
+      calculatedCellW = Math.floor(calculatedCellH / 1.05);
+    }
+
+    // Constraints: minimum 40px, maximum 140px
+    this.cellW = Math.max(40, Math.min(140, calculatedCellW));
+    this.cellH = Math.max(42, Math.min(150, calculatedCellH));
+
+    const totalBoardW = this.cellW * 5;
+    const totalBoardH = this.cellH * this.config.layout.rows;
+    const boardX = Math.floor((w - totalBoardW) / 2);
+    // Center vertically in available slot area below title header
+    const boardY = Math.max(50, Math.floor(50 + (availableH - totalBoardH) / 2));
+
     if (this.board) {
-      this.board.container.x = (w - this.cellW * 5) / 2;
+      this.board.resize(this.cellW, this.cellH);
+      this.board.container.x = boardX;
+      this.board.container.y = boardY;
+
       if (this.fullGridOverlay) {
-        this.fullGridOverlay.container.x = this.board.container.x;
-        this.fullGridOverlay.container.y = this.board.container.y;
+        this.fullGridOverlay.container.x = boardX;
+        this.fullGridOverlay.container.y = boardY;
         this.fullGridOverlay.setDimensions(this.cellW, this.cellH);
       }
-      this.highlight.container.x = this.board.container.x;
-      this.paylineOverlay.container.x = this.board.container.x;
-      this.floatingWins.container.x = this.board.container.x;
+      if (this.highlight) {
+        this.highlight.container.x = boardX;
+        this.highlight.container.y = boardY;
+        this.highlight.resize(this.cellW, this.cellH);
+      }
+      if (this.paylineOverlay) {
+        this.paylineOverlay.container.x = boardX;
+        this.paylineOverlay.container.y = boardY;
+        this.paylineOverlay.resize(this.cellW, this.cellH);
+      }
+      if (this.floatingWins) {
+        this.floatingWins.container.x = boardX;
+        this.floatingWins.container.y = boardY;
+      }
     }
 
     if (this.winParticleOverlay) {

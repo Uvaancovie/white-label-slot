@@ -1,4 +1,5 @@
 import { formatZar, type SpinResult, type SymbolId } from "@sa-slot/shared";
+import { gsap } from "gsap";
 import { SoundBus } from "./audio";
 import { historyService } from "./historyService";
 
@@ -509,8 +510,17 @@ export class UvaanSlotMachine {
   private animateLever() {
     const arm = document.getElementById("uvaan-lever-arm");
     if (!arm) return;
-    arm.classList.add("pulling");
-    setTimeout(() => arm.classList.remove("pulling"), 600);
+    gsap.timeline()
+      .to(arm, {
+        scaleY: 0.25,
+        duration: 0.18,
+        ease: "power2.in",
+      })
+      .to(arm, {
+        scaleY: 1.0,
+        duration: 0.35,
+        ease: "elastic.out(1.2, 0.4)",
+      });
   }
 
   private updateBetDisplay() {
@@ -702,7 +712,7 @@ export class UvaanSlotMachine {
 
     strips.forEach((s) => s?.classList.add("blur-spin"));
 
-    // Staggered stop for each reel
+    // Staggered stop for each reel with GSAP settle bounce
     for (let reelIdx = 0; reelIdx < 3; reelIdx++) {
       const delay = baseDuration + reelIdx * (this.isTurbo ? 100 : 250);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -723,6 +733,13 @@ export class UvaanSlotMachine {
             `;
           })
           .join("");
+
+        // GSAP Elastic Impact Bounce
+        gsap.fromTo(
+          strip,
+          { y: -16 },
+          { y: 0, duration: 0.22, ease: "back.out(2.4)" }
+        );
 
         // Reel stop sound
         this.soundBus.stopReel(reelIdx);

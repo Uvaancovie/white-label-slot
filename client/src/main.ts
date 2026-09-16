@@ -1,4 +1,5 @@
 import { Application } from "pixi.js";
+import { gsap } from "gsap";
 import {
   formatZar,
   t,
@@ -142,28 +143,16 @@ function updateJackpotDisplay(targetCents: number, animate = true) {
     return;
   }
 
-  const startValue = displayedJackpotCents;
-  const startTime = performance.now();
-  const duration = 750;
-
-  if (jackpotAnimFrame) cancelAnimationFrame(jackpotAnimFrame);
-
-  const step = (now: number) => {
-    const progress = Math.min(1, (now - startTime) / duration);
-    displayedJackpotCents = Math.round(
-      startValue + (targetCents - startValue) * progress
-    );
-    if (el.jackpotValue) el.jackpotValue.textContent = formatZar(displayedJackpotCents);
-
-    if (progress < 1) {
-      jackpotAnimFrame = requestAnimationFrame(step);
-    } else {
-      displayedJackpotCents = targetCents;
-      if (el.jackpotValue) el.jackpotValue.textContent = formatZar(targetCents);
-      jackpotAnimFrame = null;
-    }
-  };
-  jackpotAnimFrame = requestAnimationFrame(step);
+  const animObj = { val: displayedJackpotCents };
+  gsap.to(animObj, {
+    val: targetCents,
+    duration: 0.75,
+    ease: "power2.out",
+    onUpdate: () => {
+      displayedJackpotCents = Math.round(animObj.val);
+      if (el.jackpotValue) el.jackpotValue.textContent = formatZar(displayedJackpotCents);
+    },
+  });
 }
 
 function accumulateJackpot(betCents: number) {
@@ -1141,6 +1130,14 @@ async function boot() {
   await scene.init();
   scene.setMotion(reducedMotion, turbo);
   scene.setTitle(config.branding.logoText);
+
+  // Force initial resize to ensure 5x3 slot machine is centered and sized immediately
+  const initialW = host.clientWidth || window.innerWidth || 360;
+  const initialH = host.clientHeight || 480;
+  if (initialW > 0 && initialH > 0) {
+    pixiApp.renderer.resize(initialW, initialH);
+    scene.resize(initialW, initialH);
+  }
 
   // Initialize Uvaan's VIP Slot Machine for Cashier / Crypto Hub
   uvaanSlotMachine = new UvaanSlotMachine(

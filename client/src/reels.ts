@@ -1,4 +1,5 @@
 import { BlurFilter, Container, Graphics, Text } from "pixi.js";
+import { gsap } from "gsap";
 import type { GameConfig, SymbolId, LineWin, SpinResult } from "@sa-slot/shared";
 import { createSymbolSprite } from "./symbols.js";
 
@@ -73,6 +74,11 @@ export class DiamondBackground {
     this.spinning = isSpinning;
   }
 
+  resize(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+  }
+
   private startAnimation() {
     let tick = 0;
     const animate = () => {
@@ -139,6 +145,8 @@ export class ReelBoard {
   private reels: Container[] = [];
   private masks: Graphics[] = [];
   private suspenseFrames: Graphics[] = [];
+  private frameGfx = new Graphics();
+  private linesGfx = new Graphics();
   private cellW: number;
   private cellH: number;
   private rows: number;
@@ -149,6 +157,7 @@ export class ReelBoard {
   private onTensionChange?: (inTension: boolean) => void;
   private onShakeScreen?: () => void;
   private stripCache: SymbolId[][];
+  private currentGrid: SymbolId[][] = [];
 
   constructor(opts: ReelViewOptions) {
     this.cellW = opts.cellW;
@@ -161,39 +170,12 @@ export class ReelBoard {
     this.onShakeScreen = opts.onShakeScreen;
     this.stripCache = opts.config.reelStrips;
 
-    // Board background & black, red, white diamond style chassis frame
-    const frame = new Graphics();
-    const boardW = this.cellW * 5;
-    const boardH = this.cellH * this.rows;
-
-    // Outer Red Glow and Black Shadow
-    frame.roundRect(-10, -10, boardW + 20, boardH + 20, 22);
-    frame.fill({ color: 0xff2a3b, alpha: 0.35 });
-    frame.roundRect(-8, -8, boardW + 16, boardH + 16, 20);
-    frame.fill({ color: 0x000000, alpha: 0.85 });
-
-    // Outer Obsidian & Ruby Red Chassis Frame
-    frame.roundRect(-6, -6, boardW + 12, boardH + 12, 18);
-    frame.fill({ color: 0x0a0002, alpha: 0.98 });
-    frame.stroke({ width: 4.5, color: 0xd61c24, alpha: 1.0 });
-
-    // Inner Silver Diamond Bevel line
-    frame.roundRect(-2, -2, boardW + 4, boardH + 4, 14);
-    frame.stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
-
-    // Pitch Black Reel Grid Backing
-    frame.roundRect(0, 0, boardW, boardH, 12);
-    frame.fill({ color: 0x000000, alpha: 0.98 });
-    this.container.addChild(frame);
+    this.container.addChild(this.frameGfx);
 
     // Reel containers, masks & suspense frames
     for (let i = 0; i < 5; i++) {
       const reel = new Container();
-      reel.x = i * this.cellW;
-
-      const mask = new Graphics()
-        .rect(i * this.cellW, 0, this.cellW, boardH)
-        .fill(0xffffff);
+      const mask = new Graphics();
       reel.mask = mask;
       this.masks.push(mask);
       this.reels.push(reel);
@@ -203,27 +185,12 @@ export class ReelBoard {
 
       // Suspense frame graphic (hidden by default)
       const sFrame = new Graphics();
-      sFrame.x = i * this.cellW;
       sFrame.visible = false;
       this.suspenseFrames.push(sFrame);
       this.container.addChild(sFrame);
     }
 
-    // Full 5x3 Grid matrix separator lines (both vertical and horizontal)
-    const lines = new Graphics();
-    // 4 Vertical reel divider lines
-    for (let i = 1; i < 5; i++) {
-      lines.moveTo(i * this.cellW, 0);
-      lines.lineTo(i * this.cellW, boardH);
-      lines.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
-    }
-    // 2 Horizontal row divider lines
-    for (let r = 1; r < this.rows; r++) {
-      lines.moveTo(0, r * this.cellH);
-      lines.lineTo(boardW, r * this.cellH);
-      lines.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
-    }
-    this.container.addChild(lines);
+    this.container.addChild(this.linesGfx);
 
     // Initial grid setup
     const starter: SymbolId[][] = Array.from({ length: 5 }, (_, r) =>
@@ -232,7 +199,70 @@ export class ReelBoard {
         (__, row) => this.stripCache[r][row % this.stripCache[r].length],
       ),
     );
-    this.setGrid(starter);
+    this.currentGrid = starter;
+    this.rebuildDimensions();
+  }
+
+  private rebuildDimensions() {
+    const boardW = this.cellW * 5;
+    const boardH = this.cellH * this.rows;
+
+    // Board background & black, red, white diamond style chassis frame
+    this.frameGfx.clear();
+    // Outer Red Glow and Black Shadow
+    this.frameGfx.roundRect(-10, -10, boardW + 20, boardH + 20, 22);
+    this.frameGfx.fill({ color: 0xff2a3b, alpha: 0.35 });
+    this.frameGfx.roundRect(-8, -8, boardW + 16, boardH + 16, 20);
+    this.frameGfx.fill({ color: 0x000000, alpha: 0.85 });
+
+    // Outer Obsidian & Ruby Red Chassis Frame
+    this.frameGfx.roundRect(-6, -6, boardW + 12, boardH + 12, 18);
+    this.frameGfx.fill({ color: 0x0a0002, alpha: 0.98 });
+    this.frameGfx.stroke({ width: 4.5, color: 0xd61c24, alpha: 1.0 });
+
+    // Inner Silver Diamond Bevel line
+    this.frameGfx.roundRect(-2, -2, boardW + 4, boardH + 4, 14);
+    this.frameGfx.stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
+
+    // Pitch Black Reel Grid Backing
+    this.frameGfx.roundRect(0, 0, boardW, boardH, 12);
+    this.frameGfx.fill({ color: 0x000000, alpha: 0.98 });
+
+    // Update reel positions, masks, and suspense frames
+    for (let i = 0; i < 5; i++) {
+      this.reels[i].x = i * this.cellW;
+
+      this.masks[i].clear();
+      this.masks[i].rect(i * this.cellW, 0, this.cellW, boardH).fill(0xffffff);
+
+      this.suspenseFrames[i].x = i * this.cellW;
+    }
+
+    // Full 5x3 Grid matrix separator lines (both vertical and horizontal)
+    this.linesGfx.clear();
+    // 4 Vertical reel divider lines
+    for (let i = 1; i < 5; i++) {
+      this.linesGfx.moveTo(i * this.cellW, 0);
+      this.linesGfx.lineTo(i * this.cellW, boardH);
+      this.linesGfx.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
+    }
+    // 2 Horizontal row divider lines
+    for (let r = 1; r < this.rows; r++) {
+      this.linesGfx.moveTo(0, r * this.cellH);
+      this.linesGfx.lineTo(boardW, r * this.cellH);
+      this.linesGfx.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
+    }
+
+    if (this.currentGrid.length > 0) {
+      this.setGrid(this.currentGrid);
+    }
+  }
+
+  resize(cellW: number, cellH: number) {
+    if (this.cellW === cellW && this.cellH === cellH) return;
+    this.cellW = cellW;
+    this.cellH = cellH;
+    this.rebuildDimensions();
   }
 
   setMotionFlags(reducedMotion: boolean, turbo: boolean) {
@@ -245,6 +275,7 @@ export class ReelBoard {
   }
 
   setGrid(grid: SymbolId[][]) {
+    this.currentGrid = grid;
     for (let reel = 0; reel < 5; reel++) {
       this.paintReel(reel, grid[reel]);
       this.reels[reel].y = 0;
@@ -366,84 +397,83 @@ export class ReelBoard {
 
   private animateStartRecoil(reel: Container, reelIdx: number): Promise<void> {
     return new Promise((resolve) => {
-      const start = performance.now();
-      const delay = reelIdx * (this.turbo ? 10 : 20);
-      const dur = this.turbo ? 40 : 80;
+      const delay = reelIdx * (this.turbo ? 0.012 : 0.025);
+      const dur = this.turbo ? 0.05 : 0.09;
 
-      const tick = (now: number) => {
-        const elapsed = now - start;
-        if (elapsed < delay) {
-          requestAnimationFrame(tick);
-          return;
-        }
-        const t = Math.min(1, (elapsed - delay) / dur);
-        reel.y = -14 * Math.sin(t * Math.PI);
-        if (t < 1) {
-          requestAnimationFrame(tick);
-        } else {
+      gsap.timeline({
+        delay,
+        onComplete: () => {
           reel.y = 0;
           resolve();
-        }
-      };
-      requestAnimationFrame(tick);
+        },
+      })
+      .to(reel, {
+        y: -18,
+        duration: dur * 0.45,
+        ease: "power2.out",
+      })
+      .to(reel, {
+        y: 0,
+        duration: dur * 0.55,
+        ease: "power2.in",
+      });
     });
   }
 
   private animateReelPlungeAndSettle(
     reel: Container,
     boardH: number,
-    duration: number
+    durationMs: number
   ): Promise<void> {
     return new Promise((resolve) => {
-      reel.y = -boardH * 2.2;
-      const start = performance.now();
-      const from = reel.y;
-      const to = 0;
+      const fromY = -boardH * 2.2;
+      reel.y = fromY;
+      reel.scale.set(1.0);
 
-      // Apply vertical motion blur filter during high-speed spin
-      const blurFilter = new BlurFilter({ strengthX: 0, strengthY: 14, quality: 2 });
+      const blurFilter = new BlurFilter({ strengthX: 0, strengthY: 16, quality: 2 });
       reel.filters = [blurFilter];
 
-      const tick = (now: number) => {
-        const elapsed = performance.now() - start;
-        const t = Math.min(1, elapsed / duration);
+      const durationSec = durationMs / 1000;
+      const plungeDuration = durationSec * 0.72;
+      const settleDuration = durationSec * 0.28;
 
-        if (t < 0.8) {
-          // Rapid ease-in acceleration plunge
-          const progress = Math.pow(t / 0.8, 2.4);
-          reel.y = from + (to - from) * progress;
-          reel.scale.y = 1.0;
-          reel.scale.x = 1.0;
-          // Dynamic vertical blur strength matching spin velocity
-          blurFilter.strengthY = 6 + progress * 10;
-        } else {
-          // INSTANTLY remove motion blur filter on impact/land
-          if (reel.filters && reel.filters.length > 0) {
-            reel.filters = [];
-          }
-
-          // Satisfying physical impact bounce with elastic overshoot and squash/stretch
-          const bt = (t - 0.8) / 0.2;
-          // Position overshoot (+18px down -> -6px recoil -> 0px lock)
-          const bounceOffset = Math.sin(bt * Math.PI * 2) * 18 * Math.pow(1 - bt, 1.2);
-          reel.y = to + bounceOffset;
-
-          // Squash on impact (squish Y, widen X slightly), then rebound elastic
-          const squish = Math.sin(bt * Math.PI) * 0.08 * (1 - bt);
-          reel.scale.y = 1.0 - squish;
-          reel.scale.x = 1.0 + squish * 0.5;
-        }
-
-        if (t < 1) {
-          requestAnimationFrame(tick);
-        } else {
+      const tl = gsap.timeline({
+        onComplete: () => {
           reel.y = 0;
           reel.scale.set(1.0);
           reel.filters = [];
           resolve();
-        }
-      };
-      requestAnimationFrame(tick);
+        },
+      });
+
+      // 1. High-speed plunge with accelerating blur
+      tl.to(reel, {
+        y: 0,
+        duration: plungeDuration,
+        ease: "power3.in",
+        onUpdate: () => {
+          // Dynamic vertical blur proportional to velocity
+          const progress = tl.progress();
+          blurFilter.strengthY = 6 + progress * 12;
+        },
+      })
+      // 2. Physical impact instant remove blur + mechanical elastic rebound & squash/stretch
+      .call(() => {
+        reel.filters = [];
+      })
+      .to(reel, {
+        y: 0,
+        duration: settleDuration,
+        ease: "back.out(2.2)", // Tier-1 casino elastic bounce
+      }, "<")
+      .to(reel.scale, {
+        y: 0.92,
+        x: 1.05,
+        duration: settleDuration * 0.35,
+        ease: "power2.out",
+        yoyo: true,
+        repeat: 1,
+      }, "<");
     });
   }
 
@@ -472,13 +502,24 @@ export class WinHighlighter {
   private animTimer: number | null = null;
   private frames: Graphics[] = [];
   private shimmers: Array<{ sheen: Graphics; x: number; y: number; w: number; h: number }> = [];
+  private currentPositions: Array<{ reel: number; row: number }> = [];
+  private currentColor = 0xff2a3b;
 
   constructor(cellW: number, cellH: number) {
     this.cellW = cellW;
     this.cellH = cellH;
   }
 
+  resize(cellW: number, cellH: number) {
+    this.cellW = cellW;
+    this.cellH = cellH;
+    if (this.currentPositions.length > 0) {
+      this.show(this.currentPositions, this.currentColor);
+    }
+  }
+
   clear() {
+    this.currentPositions = [];
     if (this.animTimer) {
       cancelAnimationFrame(this.animTimer);
       this.animTimer = null;
@@ -490,6 +531,8 @@ export class WinHighlighter {
 
   show(positions: Array<{ reel: number; row: number }>, color = 0xff2a3b) {
     this.clear();
+    this.currentPositions = positions;
+    this.currentColor = color;
     for (const p of positions) {
       const cellCont = new Container();
 
@@ -582,18 +625,32 @@ export class PaylineOverlay {
   readonly container = new Container();
   private cellW: number;
   private cellH: number;
+  private currentLineWins: LineWin[] = [];
+  private currentPaylines: number[][] = [];
 
   constructor(cellW: number, cellH: number) {
     this.cellW = cellW;
     this.cellH = cellH;
   }
 
+  resize(cellW: number, cellH: number) {
+    this.cellW = cellW;
+    this.cellH = cellH;
+    if (this.currentLineWins.length > 0 && this.currentPaylines.length > 0) {
+      this.drawLines(this.currentLineWins, this.currentPaylines);
+    }
+  }
+
   clear() {
+    this.currentLineWins = [];
+    this.currentPaylines = [];
     this.container.removeChildren();
   }
 
   drawLines(lineWins: LineWin[], paylines: number[][]) {
-    this.clear();
+    this.currentLineWins = lineWins;
+    this.currentPaylines = paylines;
+    this.container.removeChildren();
     if (!lineWins || lineWins.length === 0) return;
 
     // Palette of Red, White, and Obsidian accents
@@ -1819,18 +1876,15 @@ export class BigWinModal {
 
   private fadeOut(): Promise<void> {
     return new Promise((resolve) => {
-      let alpha = 1;
-      const tick = () => {
-        alpha -= 0.08;
-        this.container.alpha = Math.max(0, alpha);
-        if (alpha > 0) {
-          requestAnimationFrame(tick);
-        } else {
+      gsap.to(this.container, {
+        alpha: 0,
+        duration: 0.35,
+        ease: "power2.inOut",
+        onComplete: () => {
           this.container.visible = false;
           resolve();
-        }
-      };
-      tick();
+        },
+      });
     });
   }
 }
@@ -1847,10 +1901,12 @@ export class FloatingWinManager {
     const pop = new Container();
     pop.x = x;
     pop.y = y;
+    pop.scale.set(0.4);
+    pop.alpha = 0;
 
     const bg = new Graphics();
     bg.roundRect(-45, -16, 90, 32, 16);
-    bg.fill({ color: 0x061e12, alpha: 0.9 });
+    bg.fill({ color: 0x061e12, alpha: 0.95 });
     bg.stroke({ width: 2, color: 0xffd700, alpha: 0.95 });
     pop.addChild(bg);
 
@@ -1870,22 +1926,34 @@ export class FloatingWinManager {
 
     this.container.addChild(pop);
 
-    let elapsed = 0;
-    const startY = y;
-    const anim = () => {
-      elapsed += 0.04;
-      pop.y = startY - Math.sin(elapsed * Math.PI) * 28;
-      pop.scale.set(1 + Math.sin(elapsed * Math.PI * 0.5) * 0.2);
-      pop.alpha = Math.max(0, 1 - elapsed * 0.8);
-
-      if (elapsed < 1.25) {
-        requestAnimationFrame(anim);
-      } else {
+    // GSAP Choreographed Floating Win Bubble Animation
+    gsap.timeline({
+      onComplete: () => {
         this.container.removeChild(pop);
         pop.destroy();
-      }
-    };
-    anim();
+      },
+    })
+    .to(pop, {
+      alpha: 1,
+      duration: 0.15,
+      ease: "power2.out",
+    })
+    .to(pop.scale, {
+      x: 1.15,
+      y: 1.15,
+      duration: 0.35,
+      ease: "back.out(2.0)",
+    }, "<")
+    .to(pop, {
+      y: y - 42,
+      duration: 1.1,
+      ease: "power1.out",
+    }, "<")
+    .to(pop, {
+      alpha: 0,
+      duration: 0.4,
+      ease: "power2.in",
+    }, "-=0.35");
   }
 }
 
@@ -1912,18 +1980,13 @@ export class FlashImpactOverlay {
     this.flash.clear();
     this.flash.rect(-100, -100, 2000, 2000);
     this.flash.fill(color);
-    this.flash.alpha = 0.4;
+    this.flash.alpha = 0.45;
 
-    const start = performance.now();
-    const tick = (now: number) => {
-      const elapsed = now - start;
-      const progress = elapsed / duration;
-      this.flash.alpha = Math.max(0, 0.4 * (1 - progress));
-      if (progress < 1) {
-        requestAnimationFrame(tick);
-      }
-    };
-    requestAnimationFrame(tick);
+    gsap.to(this.flash, {
+      alpha: 0,
+      duration: duration / 1000,
+      ease: "power2.out",
+    });
   }
 }
 
@@ -2196,23 +2259,18 @@ export class WinBreakdownOverlay {
     footerHint.y = cardHeight - 12;
     this.panel.addChild(footerHint);
 
-    // Slide-up and fade-in entrance animation
+    // Slide-up and fade-in entrance animation via GSAP
     this.container.visible = true;
     this.isVisible = true;
     this.panel.alpha = 0;
-    this.panel.y = cardY + 20;
+    this.panel.y = cardY + 24;
 
-    const start = performance.now();
-    const anim = (now: number) => {
-      if (!this.isVisible) return;
-      const tNorm = Math.min(1, (now - start) / 220);
-      this.panel.alpha = tNorm;
-      this.panel.y = cardY + (1 - tNorm) * 20;
-      if (tNorm < 1) {
-        requestAnimationFrame(anim);
-      }
-    };
-    requestAnimationFrame(anim);
+    gsap.to(this.panel, {
+      alpha: 1,
+      y: cardY,
+      duration: 0.28,
+      ease: "power2.out",
+    });
 
     if (autoDismissMs > 0) {
       this.autoDismissTimer = window.setTimeout(() => {
@@ -2229,20 +2287,16 @@ export class WinBreakdownOverlay {
     }
     this.isVisible = false;
 
-    const start = performance.now();
-    const startY = this.panel.y;
-    const anim = (now: number) => {
-      const tNorm = Math.min(1, (now - start) / 180);
-      this.panel.alpha = 1 - tNorm;
-      this.panel.y = startY + tNorm * 15;
-      if (tNorm < 1) {
-        requestAnimationFrame(anim);
-      } else {
+    gsap.to(this.panel, {
+      alpha: 0,
+      y: this.panel.y + 16,
+      duration: 0.22,
+      ease: "power2.in",
+      onComplete: () => {
         this.container.visible = false;
         if (onDismiss) onDismiss();
-      }
-    };
-    requestAnimationFrame(anim);
+      },
+    });
   }
 }
 
