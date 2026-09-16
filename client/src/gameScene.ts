@@ -346,8 +346,20 @@ export class GameScene {
           return true;
         });
 
-        this.highlight.show(unique);
+        this.highlight.show(unique, 0xff2a3b, result.grid);
         this.paylineOverlay.drawLines(result.lineWins, this.config.paylines);
+
+        // Check if winning combination contains Cheetah symbols
+        const cheetahWinPositions = unique.filter(
+          (pos) => result.grid[pos.reel] && result.grid[pos.reel][pos.row] === "cheetah"
+        );
+        const hasCheetahWin = cheetahWinPositions.length > 0;
+
+        if (hasCheetahWin) {
+          // Trigger Cheetah popup animation with dramatic 3D scale, shake, and roar sound
+          this.board.animateCheetahWinPop(cheetahWinPositions);
+          this.sound.cheetahRoar();
+        }
 
         const isMega = result.totalWinCents >= result.betCents * 25;
         const isBig = result.totalWinCents >= result.betCents * 10;

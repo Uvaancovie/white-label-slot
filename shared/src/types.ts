@@ -6,6 +6,7 @@ export type SymbolId =
   | "wild"
   | "scatter"
   | "springbok"
+  | "cheetah"
   | "protea"
   | "gold"
   | "drum"

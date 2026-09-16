@@ -283,6 +283,74 @@ export class ReelBoard {
     }
   }
 
+  /**
+   * Animate Cheetah symbol popup with dramatic 3D pulse, shake, and golden glow upon winning
+   */
+  animateCheetahWinPop(positions: Array<{ reel: number; row: number }>) {
+    const above = 10;
+    positions.forEach((p) => {
+      const reel = this.reels[p.reel];
+      if (!reel) return;
+      // Index of symbol in reel container: 'above' offset + row index
+      const childIndex = above + p.row;
+      const symSpr = reel.children[childIndex] as Container | undefined;
+      if (!symSpr) return;
+
+      // Center pivot point for smooth pop scaling
+      symSpr.pivot.set(this.cellW / 2, this.cellH / 2);
+      symSpr.x = this.cellW / 2;
+      symSpr.y = p.row * this.cellH + this.cellH / 2;
+
+      // GSAP timeline for instant pop-up, multi-stage shake, and settle
+      const origX = symSpr.x;
+      const origY = symSpr.y;
+
+      gsap.timeline()
+        .to(symSpr.scale, {
+          x: 1.35,
+          y: 1.35,
+          duration: 0.18,
+          ease: "back.out(3.5)",
+        })
+        .to(symSpr, {
+          x: origX + 7,
+          y: origY - 4,
+          rotation: 0.09,
+          duration: 0.05,
+          repeat: 7,
+          yoyo: true,
+          ease: "power1.inOut",
+        }, "-=0.04")
+        .to(symSpr, {
+          x: origX,
+          y: origY,
+          rotation: 0,
+          duration: 0.1,
+          ease: "power1.out",
+        })
+        .to(symSpr.scale, {
+          x: 1.12,
+          y: 1.12,
+          duration: 0.25,
+          ease: "power2.out",
+        })
+        .to(symSpr.scale, {
+          x: 1.0,
+          y: 1.0,
+          duration: 0.3,
+          ease: "power2.inOut",
+          delay: 0.8,
+          onComplete: () => {
+            symSpr.pivot.set(0, 0);
+            symSpr.x = 0;
+            symSpr.y = p.row * this.cellH;
+            symSpr.rotation = 0;
+            symSpr.scale.set(1.0);
+          },
+        });
+    });
+  }
+
   private paintReel(reelIndex: number, symbols: SymbolId[]) {
     const reel = this.reels[reelIndex];
     reel.removeChildren();
@@ -505,6 +573,8 @@ export class WinHighlighter {
   private currentPositions: Array<{ reel: number; row: number }> = [];
   private currentColor = 0xff2a3b;
 
+  private cheetahAuras: Array<{ g: Graphics; x: number; y: number; w: number; h: number }> = [];
+
   constructor(cellW: number, cellH: number) {
     this.cellW = cellW;
     this.cellH = cellH;
@@ -514,12 +584,13 @@ export class WinHighlighter {
     this.cellW = cellW;
     this.cellH = cellH;
     if (this.currentPositions.length > 0) {
-      this.show(this.currentPositions, this.currentColor);
+      this.show(this.currentPositions, this.currentColor, this.currentGrid);
     }
   }
 
   clear() {
     this.currentPositions = [];
+    this.currentGrid = undefined;
     if (this.animTimer) {
       cancelAnimationFrame(this.animTimer);
       this.animTimer = null;
@@ -527,13 +598,24 @@ export class WinHighlighter {
     this.container.removeChildren();
     this.frames = [];
     this.shimmers = [];
+    this.cheetahAuras = [];
   }
 
-  show(positions: Array<{ reel: number; row: number }>, color = 0xff2a3b) {
+  private currentGrid?: SymbolId[][];
+
+  show(
+    positions: Array<{ reel: number; row: number }>,
+    color = 0xff2a3b,
+    grid?: SymbolId[][],
+  ) {
     this.clear();
     this.currentPositions = positions;
     this.currentColor = color;
+    this.currentGrid = grid;
+
     for (const p of positions) {
+      const isCheetah = grid && grid[p.reel] && grid[p.reel][p.row] === "cheetah";
+      const isScatter = grid && grid[p.reel] && grid[p.reel][p.row] === "scatter";
       const cellCont = new Container();
 
       const x = p.reel * this.cellW + 2;
@@ -543,18 +625,47 @@ export class WinHighlighter {
 
       const g = new Graphics();
 
-      // Outer ruby glow aura
-      g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
-      g.fill({ color: 0xd61c24, alpha: 0.35 });
+      if (isCheetah) {
+        // Cheetah Golden Ember Frame & Electric Glow
+        g.roundRect(x - 3, y - 3, w + 6, h + 6, 14);
+        g.fill({ color: 0xff8c00, alpha: 0.55 });
 
-      // Crimson win frame
-      g.roundRect(x, y, w, h, 10);
-      g.fill({ color: 0xff2a3b, alpha: 0.25 });
-      g.stroke({ width: 4.5, color: 0xff2a3b, alpha: 0.98 });
+        g.roundRect(x, y, w, h, 10);
+        g.fill({ color: 0xffb300, alpha: 0.35 });
+        g.stroke({ width: 5, color: 0xffd700, alpha: 1.0 });
 
-      // Inner white highlight stroke
-      g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
-      g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
+
+        // Special dynamic Cheetah aura layer
+        const cheetahG = new Graphics();
+        cellCont.addChild(cheetahG);
+        this.cheetahAuras.push({ g: cheetahG, x: x + w / 2, y: y + h / 2, w, h });
+      } else if (isScatter) {
+        // Diamond Cyan Glow Frame
+        g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
+        g.fill({ color: 0x00d2ff, alpha: 0.45 });
+
+        g.roundRect(x, y, w, h, 10);
+        g.fill({ color: 0x00f5d4, alpha: 0.25 });
+        g.stroke({ width: 4.5, color: 0x00d2ff, alpha: 1.0 });
+
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.95 });
+      } else {
+        // Outer ruby glow aura
+        g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
+        g.fill({ color: 0xd61c24, alpha: 0.35 });
+
+        // Crimson win frame
+        g.roundRect(x, y, w, h, 10);
+        g.fill({ color: 0xff2a3b, alpha: 0.25 });
+        g.stroke({ width: 4.5, color: 0xff2a3b, alpha: 0.98 });
+
+        // Inner white highlight stroke
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
+      }
 
       cellCont.addChild(g);
       this.frames.push(g);
@@ -576,7 +687,7 @@ export class WinHighlighter {
       this.container.addChild(cellCont);
     }
 
-    // High energy pulse and diagonal shimmer sweep animation
+    // High energy pulse, cheetah solar flare rotation, and diagonal shimmer sweep animation
     let step = 0;
     let sweepPos = -0.5;
 
@@ -588,6 +699,33 @@ export class WinHighlighter {
       const alpha = 0.75 + 0.25 * Math.sin(step * 1.5);
       this.frames.forEach((f) => {
         f.alpha = alpha;
+      });
+
+      // Animate cheetah golden radiant solar flare & spinning glow bursts
+      this.cheetahAuras.forEach(({ g, x, y, w, h }) => {
+        g.clear();
+        const pulseScale = 1 + 0.15 * Math.sin(step * 2.2);
+        const flareR = Math.min(w, h) * 0.45 * pulseScale;
+
+        // Radiating pulse ring
+        g.circle(x, y, flareR + 6);
+        g.fill({ color: 0xffaa00, alpha: 0.35 + 0.2 * Math.cos(step * 2) });
+
+        // 8 Rotating golden sunburst rays
+        const rayCount = 8;
+        const angleOffset = step * 0.8;
+        for (let i = 0; i < rayCount; i++) {
+          const angle = angleOffset + (i * Math.PI * 2) / rayCount;
+          const r1 = flareR * 0.7;
+          const r2 = flareR * 1.25;
+          const x1 = x + Math.cos(angle) * r1;
+          const y1 = y + Math.sin(angle) * r1;
+          const x2 = x + Math.cos(angle) * r2;
+          const y2 = y + Math.sin(angle) * r2;
+          g.moveTo(x1, y1);
+          g.lineTo(x2, y2);
+          g.stroke({ width: 3, color: 0xffd700, alpha: 0.75 });
+        }
       });
 
       // Animate light sweep across each symbol cell

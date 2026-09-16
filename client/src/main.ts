@@ -20,7 +20,7 @@ import {
 import { SoundBus } from "./audio.js";
 import { GameScene } from "./gameScene.js";
 import { historyService } from "./historyService.js";
-import { SYMBOL_COLORS } from "./symbols.js";
+import { ASSET_URLS, preloadSymbolTextures, SYMBOL_COLORS } from "./symbols.js";
 import { UvaanSlotMachine } from "./uvaanSlotService.js";
 
 const sound = new SoundBus();
@@ -910,24 +910,43 @@ function buildPaytablePage() {
   const symbolCards = config.paytable
     .map((p) => {
       const meta = SYMBOL_COLORS[p.symbol] || { label: p.symbol, fg: 0xffffff };
+      const assetUrl = (ASSET_URLS as Record<string, string>)[p.symbol];
+      const isWild = p.symbol === "wild";
+      const isRoyal = ["A", "K", "Q", "J", "10"].includes(p.symbol);
+
+      const iconHtml = assetUrl
+        ? `<div class="paytable-icon-wrap" style="${isWild ? "border-color: #ffd700; box-shadow: 0 0 16px rgba(255,215,0,0.5);" : ""}">
+            <img src="${assetUrl}" alt="${meta.label}" />
+           </div>`
+        : `<div class="paytable-icon-wrap">
+            <span class="paytable-royal-badge" style="color: #${meta.fg.toString(16).padStart(6, "0")};">${p.symbol}</span>
+           </div>`;
+
       return `
-        <div class="paytable-card">
+        <div class="paytable-card" style="${isWild ? "border: 2px solid rgba(255, 215, 0, 0.7); background: linear-gradient(135deg, rgba(255,215,0,0.15) 0%, rgba(35,2,7,0.95) 100%); box-shadow: 0 0 24px rgba(255,215,0,0.3);" : ""}">
           <div class="paytable-card-header">
-            <strong style="color: #ffffff; font-family: Rajdhani, sans-serif; font-size: 16px;">${meta.label}</strong>
-            <span style="font-size: 11px; color: #ff4d5a; font-weight: 700;">${p.symbol.toUpperCase()}</span>
+            ${iconHtml}
+            <div style="flex: 1;">
+              <strong style="color: #ffffff; font-family: Rajdhani, sans-serif; font-size: 20px; font-weight: 800; display: block; letter-spacing: 0.04em;">
+                ${meta.label}
+              </strong>
+              <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: ${isWild ? "#ffd700" : isRoyal ? "#ff707f" : "#00e676"};">
+                ${isWild ? "★ WILD SUBSTITUTE & TOP PAY" : isRoyal ? "ROYAL SYMBOL" : "★ HIGH-PAYING SYMBOL"}
+              </span>
+            </div>
           </div>
-          <div style="display: flex; justify-content: space-around; text-align: center; font-family: Rajdhani, sans-serif;">
-            <div>
-              <div style="font-size: 11px; color: #e0adb1;">3 OF A KIND</div>
-              <strong style="font-size: 16px; color: #ffd700;">${p.ofAKind[3]}x</strong>
+          <div class="paytable-mult-grid">
+            <div class="paytable-mult-box">
+              <span class="kind-label">3 OF A KIND</span>
+              <span class="mult-value">${p.ofAKind[3]}x</span>
             </div>
-            <div>
-              <div style="font-size: 11px; color: #e0adb1;">4 OF A KIND</div>
-              <strong style="font-size: 16px; color: #ffd700;">${p.ofAKind[4]}x</strong>
+            <div class="paytable-mult-box">
+              <span class="kind-label">4 OF A KIND</span>
+              <span class="mult-value">${p.ofAKind[4]}x</span>
             </div>
-            <div>
-              <div style="font-size: 11px; color: #e0adb1;">5 OF A KIND</div>
-              <strong style="font-size: 18px; color: #00e676;">${p.ofAKind[5]}x</strong>
+            <div class="paytable-mult-box highlight">
+              <span class="kind-label">5 OF A KIND</span>
+              <span class="mult-value">${p.ofAKind[5]}x</span>
             </div>
           </div>
         </div>
@@ -935,11 +954,42 @@ function buildPaytablePage() {
     })
     .join("");
 
+  // Diamond Scatter Card
+  const scatterAssetUrl = ASSET_URLS.scatter;
+  const scatterCard = `
+    <div class="paytable-card" style="border: 2px solid rgba(0, 210, 255, 0.7); background: linear-gradient(135deg, rgba(0,210,255,0.15) 0%, rgba(10,2,20,0.95) 100%); box-shadow: 0 0 24px rgba(0,210,255,0.3);">
+      <div class="paytable-card-header">
+        <div class="paytable-icon-wrap" style="border-color: #00d2ff; box-shadow: 0 0 16px rgba(0,210,255,0.5);">
+          <img src="${scatterAssetUrl}" alt="Diamond Scatter" />
+        </div>
+        <div style="flex: 1;">
+          <strong style="color: #ffffff; font-family: Rajdhani, sans-serif; font-size: 20px; font-weight: 800; display: block; letter-spacing: 0.04em;">DIAMOND SCATTER</strong>
+          <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #00d2ff;">★ FREE SPINS BONUS TRIGGER</span>
+        </div>
+      </div>
+      <div class="paytable-mult-grid">
+        <div class="paytable-mult-box">
+          <span class="kind-label">3 SCATTERS</span>
+          <span class="mult-value" style="color: #00d2ff;">10 SPINS</span>
+        </div>
+        <div class="paytable-mult-box">
+          <span class="kind-label">4 SCATTERS</span>
+          <span class="mult-value" style="color: #00d2ff;">15 SPINS</span>
+        </div>
+        <div class="paytable-mult-box highlight">
+          <span class="kind-label">5 SCATTERS</span>
+          <span class="mult-value" style="color: #00e676;">25 SPINS</span>
+        </div>
+      </div>
+    </div>
+  `;
+
   container.innerHTML = `
     <div style="margin-bottom: 20px;">
-      <h3 style="font-family: Rajdhani, sans-serif; font-size: 20px; color: #ff4d5a; margin: 0 0 10px;">Symbol Multipliers (Line Wins)</h3>
+      <h3 style="font-family: Rajdhani, sans-serif; font-size: 20px; color: #ff4d5a; margin: 0 0 10px;">Symbol Multipliers (Line Wins & Scatters)</h3>
       <div class="paytable-grid">
         ${symbolCards}
+        ${scatterCard}
       </div>
     </div>
 
@@ -1117,6 +1167,8 @@ async function boot() {
   );
 
   const host = document.getElementById("game-root")!;
+  await preloadSymbolTextures();
+
   pixiApp = new Application();
   await pixiApp.init({
     resizeTo: host,

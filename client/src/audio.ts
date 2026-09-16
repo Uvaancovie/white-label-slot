@@ -280,6 +280,66 @@ export class SoundBus {
     }
   }
 
+  cheetahRoar() {
+    this.stopTension();
+    const ctx = this.ensure();
+    if (!ctx) return;
+
+    try {
+      const now = ctx.currentTime;
+      // 1. Low frequency resonant vocal growl/roar sweep
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = "sawtooth";
+      osc1.frequency.setValueAtTime(140, now);
+      osc1.frequency.exponentialRampToValueAtTime(75, now + 0.35);
+      osc1.frequency.exponentialRampToValueAtTime(45, now + 0.7);
+
+      // Lowpass filter for deep beastly throat resonance
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(420, now);
+      filter.frequency.exponentialRampToValueAtTime(180, now + 0.7);
+
+      gain1.gain.setValueAtTime(0, now);
+      gain1.gain.linearRampToValueAtTime(0.18, now + 0.08);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+
+      osc1.connect(filter);
+      filter.connect(gain1);
+      gain1.connect(ctx.destination);
+
+      osc1.start(now);
+      osc1.stop(now + 0.75);
+
+      // 2. High snarl raspy pitch
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(320, now);
+      osc2.frequency.linearRampToValueAtTime(210, now + 0.25);
+      osc2.frequency.exponentialRampToValueAtTime(90, now + 0.6);
+
+      gain2.gain.setValueAtTime(0, now);
+      gain2.gain.linearRampToValueAtTime(0.12, now + 0.05);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+
+      osc2.start(now);
+      osc2.stop(now + 0.6);
+
+      // 3. Followed by golden bell chime
+      setTimeout(() => {
+        this.tone(1318.5, 0.25, "sine", 0.08);
+        this.tone(1760, 0.35, "sine", 0.06);
+      }, 250);
+    } catch {
+      // Audio fallback
+    }
+  }
+
   freeSpins() {
     this.stopTension();
     const notes = [587.33, 739.99, 880, 1174.66];
