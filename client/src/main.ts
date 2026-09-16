@@ -1,3 +1,4 @@
+import "./styles/main.css";
 import { Application } from "pixi.js";
 import { gsap } from "gsap";
 import {
