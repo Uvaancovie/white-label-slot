@@ -79,59 +79,61 @@ let jackpotAnimFrame: number | null = null;
 
 const el = {
   // Navigation & Header
-  navBrandBtn: document.getElementById("nav-brand-btn")!,
-  navTabGame: document.getElementById("nav-tab-game")!,
-  navTabCashier: document.getElementById("nav-tab-cashier")!,
-  navTabHistory: document.getElementById("nav-tab-history")!,
-  navTabSession: document.getElementById("nav-tab-session")!,
-  navTabPaytable: document.getElementById("nav-tab-paytable")!,
-  navValBalance: document.getElementById("nav-val-balance")!,
-  navBalanceBtn: document.getElementById("nav-balance-btn")!,
-  navBtnSound: document.getElementById("nav-btn-sound")!,
-  navBtnLang: document.getElementById("nav-btn-lang")!,
-  navHistoryCount: document.getElementById("nav-history-count")!,
+  navBrandBtn: document.getElementById("nav-brand-btn"),
+  navTabGame: document.getElementById("nav-tab-game"),
+  navTabCashier: document.getElementById("nav-tab-cashier"),
+  navTabHistory: document.getElementById("nav-tab-history"),
+  navTabSession: document.getElementById("nav-tab-session"),
+  navTabPaytable: document.getElementById("nav-tab-paytable"),
+  navValBalance: document.getElementById("nav-val-balance"),
+  navBalanceBtn: document.getElementById("nav-balance-btn"),
+  navBtnSound: document.getElementById("nav-btn-sound"),
+  navBtnLang: document.getElementById("nav-btn-lang"),
+  navHistoryCount: document.getElementById("nav-history-count"),
 
   // View Containers
-  viewGame: document.getElementById("view-game")!,
-  viewCashier: document.getElementById("view-cashier")!,
-  viewHistory: document.getElementById("view-history")!,
-  viewSession: document.getElementById("view-session")!,
-  viewPaytable: document.getElementById("view-paytable")!,
+  viewGame: document.getElementById("view-game"),
+  viewCashier: document.getElementById("view-cashier"),
+  viewHistory: document.getElementById("view-history"),
+  viewSession: document.getElementById("view-session"),
+  viewPaytable: document.getElementById("view-paytable"),
 
   // Game View Specifics
-  balance: document.getElementById("val-balance")!,
-  bet: document.getElementById("val-bet")!,
-  win: document.getElementById("val-win")!,
-  betDisplay: document.getElementById("bet-display")!,
-  jackpotMeter: document.getElementById("jackpot-meter")!,
-  jackpotValue: document.getElementById("val-jackpot")!,
-  lblJackpot: document.getElementById("lbl-jackpot")!,
-  spinBtn: document.getElementById("spin-btn") as HTMLButtonElement,
-  banner: document.getElementById("banner")!,
-  footerLegal: document.getElementById("footer-legal")!,
-  rgLink: document.getElementById("rg-link") as HTMLAnchorElement,
-  fsBadge: document.getElementById("fs-badge")!,
-  fsBadgeText: document.getElementById("fs-badge-text")!,
-  btnFsToggle: document.getElementById("btn-fs-toggle") as HTMLButtonElement,
-  toast: document.getElementById("toast")!,
-  lblBalance: document.getElementById("lbl-balance")!,
-  lblBet: document.getElementById("lbl-bet")!,
-  lblWin: document.getElementById("lbl-win")!,
-  btnTurbo: document.getElementById("btn-turbo")!,
-  btnSound: document.getElementById("btn-sound")!,
-  btnMotion: document.getElementById("btn-motion")!,
-  btnLang: document.getElementById("btn-lang")!,
-  btnAuto: document.getElementById("btn-auto")!,
-  btnBreakdown: document.getElementById("btn-breakdown")!,
-  btnCashier: document.getElementById("btn-cashier")!,
-  btnGridLines: document.getElementById("btn-grid-lines")!,
-  btnHistoryQuick: document.getElementById("btn-history-quick")!,
-  balanceMeterBox: document.getElementById("balance-meter-box")!,
-  btnPaytable: document.getElementById("btn-paytable")!,
-  btnRules: document.getElementById("btn-rules")!,
-  btnSession: document.getElementById("btn-session")!,
-  betMinus: document.getElementById("bet-minus") as HTMLButtonElement,
-  betPlus: document.getElementById("bet-plus") as HTMLButtonElement,
+  balance: document.getElementById("val-balance"),
+  bet: document.getElementById("val-bet"),
+  win: document.getElementById("val-win"),
+  betDisplay: document.getElementById("bet-display"),
+  jackpotMeter: document.getElementById("jackpot-meter"),
+  jackpotValue: document.getElementById("val-jackpot"),
+  lblJackpot: document.getElementById("lbl-jackpot"),
+  spinBtn: document.getElementById("spin-btn") as HTMLButtonElement | null,
+  slotLeverContainer: document.getElementById("slot-lever-container"),
+  leverArm: document.getElementById("lever-arm"),
+  banner: document.getElementById("banner"),
+  footerLegal: document.getElementById("footer-legal"),
+  rgLink: document.getElementById("rg-link") as HTMLAnchorElement | null,
+  fsBadge: document.getElementById("fs-badge"),
+  fsBadgeText: document.getElementById("fs-badge-text"),
+  btnFsToggle: document.getElementById("btn-fs-toggle") as HTMLButtonElement | null,
+  toast: document.getElementById("toast"),
+  lblBalance: document.getElementById("lbl-balance"),
+  lblBet: document.getElementById("lbl-bet"),
+  lblWin: document.getElementById("lbl-win"),
+  btnTurbo: document.getElementById("btn-turbo"),
+  btnSound: document.getElementById("btn-sound"),
+  btnMotion: document.getElementById("btn-motion"),
+  btnLang: document.getElementById("btn-lang"),
+  btnAuto: document.getElementById("btn-auto"),
+  btnBreakdown: document.getElementById("btn-breakdown"),
+  btnCashier: document.getElementById("btn-cashier"),
+  btnGridLines: document.getElementById("btn-grid-lines"),
+  btnHistoryQuick: document.getElementById("btn-history-quick"),
+  balanceMeterBox: document.getElementById("balance-meter-box"),
+  btnPaytable: document.getElementById("btn-paytable"),
+  btnRules: document.getElementById("btn-rules"),
+  btnSession: document.getElementById("btn-session"),
+  betMinus: document.getElementById("bet-minus") as HTMLButtonElement | null,
+  betPlus: document.getElementById("bet-plus") as HTMLButtonElement | null,
 };
 
 function updateJackpotDisplay(targetCents: number, animate = true) {
@@ -194,6 +196,10 @@ function refreshMeters() {
 
   if (el.navHistoryCount) {
     el.navHistoryCount.textContent = historyService.getCount().toString();
+  }
+
+  if (el.slotLeverContainer) {
+    el.slotLeverContainer.classList.toggle("disabled", busy);
   }
 
   const hasFs = session.freeSpinsRemaining > 0;
@@ -1099,7 +1105,19 @@ async function doSpin() {
         2000
       );
     } else if (result.totalWinCents > 0) {
-      showToast(formatZar(result.totalWinCents));
+      const isMega = result.totalWinCents >= result.betCents * 25;
+      const isBig = result.totalWinCents >= result.betCents * 10;
+      const prefix = isMega ? "🔥 MEGA WIN " : isBig ? "✨ BIG WIN " : "WIN ";
+      showToast(`${prefix}${formatZar(result.totalWinCents)}`, 2200);
+
+      // Trigger HUD win surge glow
+      const winPill = el.winMeter?.closest(".hud-stat-pill");
+      if (winPill) {
+        winPill.classList.add("hud-win-active");
+        setTimeout(() => {
+          winPill.classList.remove("hud-win-active");
+        }, 3200);
+      }
     }
 
     // Autoplay stop conditions
@@ -1143,6 +1161,32 @@ async function doSpin() {
       }, turbo ? 120 : 350);
     }
   }
+}
+
+function triggerLeverSpin() {
+  if (busy) return;
+  if (autoRemaining > 0) {
+    stopAuto();
+    return;
+  }
+
+  // Animate the physical mechanical lever downward with spring tension & sound
+  if (el.slotLeverContainer) {
+    sound.leverPull();
+    el.slotLeverContainer.classList.remove("recoiling");
+    el.slotLeverContainer.classList.add("pulling");
+    setTimeout(() => {
+      if (el.slotLeverContainer) {
+        el.slotLeverContainer.classList.remove("pulling");
+        el.slotLeverContainer.classList.add("recoiling");
+        setTimeout(() => {
+          el.slotLeverContainer?.classList.remove("recoiling");
+        }, 260);
+      }
+    }, 140);
+  }
+
+  void doSpin();
 }
 
 function stopAuto() {
@@ -1341,13 +1385,21 @@ async function boot() {
     refreshMeters();
   });
 
-  // Spin Button
+  // Spin Button & Mechanical Lever
   el.spinBtn?.addEventListener("click", () => {
-    if (autoRemaining > 0) {
-      stopAuto();
-      return;
+    triggerLeverSpin();
+  });
+
+  el.slotLeverContainer?.addEventListener("click", (e) => {
+    e.preventDefault();
+    triggerLeverSpin();
+  });
+
+  el.slotLeverContainer?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      triggerLeverSpin();
     }
-    void doSpin();
   });
 
   // Free Spins Save / Bank Toggle
@@ -1403,7 +1455,7 @@ async function boot() {
     if (e.code === "Space" && !busy && currentView === "game") {
       e.preventDefault();
       if (autoRemaining > 0) stopAuto();
-      else void doSpin();
+      else triggerLeverSpin();
     }
   });
 

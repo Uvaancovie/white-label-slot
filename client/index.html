@@ -73,67 +73,89 @@
       <main id="views-container">
         <!-- 1. SLOT GAME VIEW -->
         <section class="app-view active" id="view-game">
-          <div id="game-root">
-            <div id="fs-badge">
-              <span id="fs-badge-text">⚡ FREE SPINS: 0</span>
-              <button type="button" id="btn-fs-toggle" class="fs-toggle-btn" title="Save free spins for later">Save for Later</button>
+          <div class="slot-cabinet-stage" id="slot-cabinet-stage">
+            <div id="game-root">
+              <div id="fs-badge">
+                <span id="fs-badge-text">⚡ FREE SPINS: 0</span>
+                <button type="button" id="btn-fs-toggle" class="fs-toggle-btn" title="Save free spins for later">Save for Later</button>
+              </div>
+              <div id="toast"></div>
             </div>
-            <div id="toast"></div>
+
+            <!-- Mechanical Slot Machine Pull Lever -->
+            <div class="slot-lever-container" id="slot-lever-container" role="button" tabindex="0" aria-label="Pull Lever to Spin" title="Click or Pull Lever to Spin!">
+              <div class="lever-mount-plate">
+                <div class="lever-bolt lever-bolt-top"></div>
+                <div class="lever-housing">
+                  <div class="lever-socket-glow"></div>
+                  <div class="lever-socket">
+                    <div class="lever-pivot-core"></div>
+                    <div class="lever-arm-assembly" id="lever-arm">
+                      <div class="lever-rod">
+                        <div class="lever-rod-highlight"></div>
+                        <div class="lever-rod-groove"></div>
+                      </div>
+                      <div class="lever-knob-wrapper">
+                        <div class="lever-knob">
+                          <div class="lever-knob-specular"></div>
+                          <div class="lever-knob-glow"></div>
+                          <div class="lever-knob-facet"></div>
+                        </div>
+                        <div class="lever-pull-hint">PULL</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="lever-bolt lever-bolt-bottom"></div>
+              </div>
+            </div>
           </div>
 
           <div id="hud">
-            <!-- Progressive Jackpot -->
+            <!-- Slim Progressive Jackpot Bar -->
             <div class="jackpot-container" id="jackpot-meter">
               <div class="jackpot-badge">
                 <span class="jackpot-diamond">◆</span>
-                <span id="lbl-jackpot">PROGRESSIVE JACKPOT</span>
+                <span id="lbl-jackpot">JACKPOT</span>
                 <span class="jackpot-diamond">◆</span>
               </div>
               <div class="jackpot-value" id="val-jackpot">R50,000.00</div>
+              <button type="button" class="hud-mini-btn" id="btn-grid-lines" title="Cycle Grid Lines & 20 Paylines">🌐 Grid</button>
             </div>
 
-            <!-- Meters Grid -->
-            <div class="meters">
-              <div class="meter" id="balance-meter-box" style="cursor: pointer;" title="Click to open Cashier & Deposit">
-                <label id="lbl-balance">Balance <span style="font-size: 9px; background: #00e676; color: #000; padding: 1px 4px; border-radius: 3px; font-weight: 800;">+DEPOSIT</span></label>
-                <strong id="val-balance">R1,000.00</strong>
+            <!-- Minimal Unified Control Deck -->
+            <div class="hud-deck">
+              <!-- Left: Balance & Win Stats -->
+              <div class="hud-stat-group">
+                <div class="hud-stat-pill" id="balance-meter-box" role="button" tabindex="0" title="Click to open Cashier & Deposit">
+                  <span class="hud-stat-label" id="lbl-balance">BAL</span>
+                  <strong class="hud-stat-val" id="val-balance">R1,000.00</strong>
+                </div>
+                <div class="hud-stat-pill win-pill">
+                  <span class="hud-stat-label" id="lbl-win">WIN</span>
+                  <strong class="hud-stat-val text-win" id="val-win">R0.00</strong>
+                </div>
               </div>
-              <div class="meter">
-                <label id="lbl-bet">Bet</label>
-                <strong id="val-bet">R5.00</strong>
-              </div>
-              <div class="meter">
-                <label id="lbl-win">Win</label>
-                <strong id="val-win">R0.00</strong>
-              </div>
-            </div>
 
-            <!-- Spin & Bet Controls -->
-            <div class="controls">
+              <!-- Center: Compact Bet Stepper -->
               <div class="bet-ctrl">
                 <button type="button" id="bet-minus" aria-label="Decrease bet">−</button>
-                <div class="bet-value" id="bet-display">R5.00</div>
+                <div class="bet-value">
+                  <span class="bet-label-mini" id="lbl-bet">BET</span>
+                  <strong id="bet-display">R5.00</strong>
+                  <span id="val-bet" class="sr-only">R5.00</span>
+                </div>
                 <button type="button" id="bet-plus" aria-label="Increase bet">+</button>
               </div>
-              <button type="button" id="spin-btn">SPIN</button>
-              <div class="side-actions">
-                <button type="button" class="icon-btn" id="btn-auto" title="Autoplay">A</button>
-                <button type="button" class="icon-btn" id="btn-turbo" title="Turbo">T</button>
-              </div>
-            </div>
 
-            <!-- Toolbar Shortcuts -->
-            <div class="toolbar">
-              <button type="button" class="chip active" id="btn-cashier" title="Deposit & Live Crypto Tracker">💳 Deposit / Crypto</button>
-              <button type="button" class="chip" id="btn-grid-lines" title="Cycle Grid Lines & 20 Paylines Roadmap">🌐 Grid: 5x3 Matrix</button>
-              <button type="button" class="chip" id="btn-history-quick" title="View Game Spin History">📜 Spin History</button>
-              <button type="button" class="chip" id="btn-breakdown" title="View last win breakdown">Breakdown</button>
-              <button type="button" class="chip" id="btn-paytable">Paytable</button>
-              <button type="button" class="chip" id="btn-rules">Rules</button>
-              <button type="button" class="chip" id="btn-session">Session</button>
-              <button type="button" class="chip" id="btn-sound">Sound</button>
-              <button type="button" class="chip" id="btn-motion">Motion</button>
-              <button type="button" class="chip" id="btn-lang">EN | ZU</button>
+              <!-- Right: Primary Spin & Fast Actions -->
+              <div class="hud-spin-group">
+                <div class="hud-toggles">
+                  <button type="button" class="icon-btn" id="btn-auto" title="Autoplay">AUTO</button>
+                  <button type="button" class="icon-btn" id="btn-turbo" title="Turbo Spin">TURBO</button>
+                </div>
+                <button type="button" id="spin-btn">SPIN</button>
+              </div>
             </div>
           </div>
         </section>

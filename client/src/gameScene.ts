@@ -102,6 +102,8 @@ export class GameScene {
       onTensionChange: (inTension) =>
         inTension ? this.sound.startTension() : this.sound.stopTension(),
       onShakeScreen: () => this.shakeScreen(300, 6),
+      onWildHop: (_wild) => this.sound.wildHop(),
+      onWildLand: (_wild) => this.sound.wildLock(),
     });
     this.board.container.x = (w - this.cellW * 5) / 2;
     this.board.container.y = 54;
@@ -142,19 +144,19 @@ export class GameScene {
     this.root.addChild(this.breakdownOverlay.container);
 
     // Red & Black Diamond accent bar under title
-    this.renderAccentBar(w);
+    this.renderAccentBar(w, 36);
     this.root.addChild(this.accentBar);
 
     this.app.stage.addChild(this.root);
+    this.resize(w, h);
   }
 
-  private renderAccentBar(w: number) {
+  private renderAccentBar(w: number, barY = 36) {
     this.accentBar.clear();
-    const barY = 46;
     const colors = [0x8a0008, 0xd61c24, 0xff2a3b, 0xffffff, 0xff2a3b, 0xd61c24, 0x8a0008];
     const bw = w / colors.length;
     colors.forEach((c, i) => {
-      this.accentBar.rect(i * bw, barY, bw, 3);
+      this.accentBar.rect(i * bw, barY, bw, 2.5);
       this.accentBar.fill(c);
     });
   }
@@ -176,13 +178,21 @@ export class GameScene {
       this.diamondBg.resize(w, h);
     }
 
+    // Responsive Title Typography & Header Clearance
+    const titleFontSize = Math.min(22, Math.max(14, Math.floor(w / 20)));
+    this.title.style.fontSize = titleFontSize;
+    this.title.style.letterSpacing = 1;
     this.title.x = w / 2;
-    this.renderAccentBar(w);
+    this.title.y = 6;
 
-    // Dynamically calculate cell size based on container dimensions
-    // Title takes ~50px from top, leave ~15px bottom buffer
-    const availableW = Math.max(100, w - 24);
-    const availableH = Math.max(100, h - 70);
+    const accentBarY = this.title.y + titleFontSize + 4;
+    this.renderAccentBar(w, accentBarY);
+
+    // Header occupies space down to accentBarY + margin
+    const topClearance = accentBarY + 10;
+    const bottomBuffer = 10;
+    const availableW = Math.max(100, w - 20);
+    const availableH = Math.max(100, h - topClearance - bottomBuffer);
 
     const cellWFromW = Math.floor(availableW / 5);
     const cellHFromH = Math.floor(availableH / this.config.layout.rows);
@@ -196,15 +206,15 @@ export class GameScene {
       calculatedCellW = Math.floor(calculatedCellH / 1.05);
     }
 
-    // Constraints: minimum 40px, maximum 140px
-    this.cellW = Math.max(40, Math.min(140, calculatedCellW));
-    this.cellH = Math.max(42, Math.min(150, calculatedCellH));
+    // Constraints: minimum 44px, maximum 220px for clear, crisp reels
+    this.cellW = Math.max(44, Math.min(220, calculatedCellW));
+    this.cellH = Math.max(46, Math.min(230, calculatedCellH));
 
     const totalBoardW = this.cellW * 5;
     const totalBoardH = this.cellH * this.config.layout.rows;
     const boardX = Math.floor((w - totalBoardW) / 2);
-    // Center vertically in available slot area below title header
-    const boardY = Math.max(50, Math.floor(50 + (availableH - totalBoardH) / 2));
+    // Center vertically in the guaranteed clearance area below title header
+    const boardY = Math.floor(topClearance + Math.max(0, (availableH - totalBoardH) / 2));
 
     if (this.board) {
       this.board.resize(this.cellW, this.cellH);
@@ -329,7 +339,7 @@ export class GameScene {
     this.pulseGrid();
 
     try {
-      await this.board.spinTo(result.grid);
+      await this.board.spinTo(result.grid, result.persistentWilds);
 
       if (result.totalWinCents > 0) {
         this.pulseGrid();
@@ -349,18 +359,6 @@ export class GameScene {
         this.highlight.show(unique, 0xff2a3b, result.grid);
         this.paylineOverlay.drawLines(result.lineWins, this.config.paylines);
 
-        // Check if winning combination contains Cheetah symbols
-        const cheetahWinPositions = unique.filter(
-          (pos) => result.grid[pos.reel] && result.grid[pos.reel][pos.row] === "cheetah"
-        );
-        const hasCheetahWin = cheetahWinPositions.length > 0;
-
-        if (hasCheetahWin) {
-          // Trigger Cheetah popup animation with dramatic 3D scale, shake, and roar sound
-          this.board.animateCheetahWinPop(cheetahWinPositions);
-          this.sound.cheetahRoar();
-        }
-
         const isMega = result.totalWinCents >= result.betCents * 25;
         const isBig = result.totalWinCents >= result.betCents * 10;
         const isNice = result.totalWinCents >= result.betCents * 3;
@@ -372,6 +370,17 @@ export class GameScene {
           : isNice
           ? "nice"
           : "small";
+
+        // Animate all winning symbols with 3D spring pop, squash/stretch, and themed radiance
+        this.board.animateAllWinningSymbols(unique, result.grid, winTier);
+
+        // Check if winning combination contains Cheetah symbols
+        const cheetahWinPositions = unique.filter(
+          (pos) => result.grid[pos.reel] && result.grid[pos.reel][pos.row] === "cheetah"
+        );
+        if (cheetahWinPositions.length > 0) {
+          this.sound.cheetahRoar();
+        }
 
         // Convert grid cell positions to canvas pixel positions
         const pixelPositions = unique.map((pos) => ({
@@ -387,42 +396,52 @@ export class GameScene {
           reducedMotion: this.reducedMotion,
         });
 
-        this.flashOverlay.triggerFlash(isMega ? 0xffd700 : 0xffffff, 250);
+        this.flashOverlay.triggerFlash(isMega ? 0xffd700 : isBig ? 0xff2a3b : 0xffffff, isMega ? 350 : 250);
 
-        // Spawn floating win text popups at center of winning line combinations
-        result.lineWins.forEach((win) => {
+        // Staggered floating win text popups at center of winning line combinations
+        result.lineWins.forEach((win, idx) => {
           if (win.positions.length > 0) {
-            const midPos = win.positions[Math.floor(win.positions.length / 2)];
-            const popX = midPos.reel * this.cellW + this.cellW / 2;
-            const popY = midPos.row * this.cellH + this.cellH / 2;
-            const winRands = (win.winCents / 100).toFixed(2);
-            this.floatingWins.spawnPopup(popX, popY, `+R${winRands}`);
+            setTimeout(() => {
+              const midPos = win.positions[Math.floor(win.positions.length / 2)];
+              const popX = midPos.reel * this.cellW + this.cellW / 2;
+              const popY = midPos.row * this.cellH + this.cellH / 2;
+              const winRands = (win.winCents / 100).toFixed(2);
+              this.floatingWins.spawnPopup(popX, popY, `+R${winRands}`, false);
+            }, idx * 140);
           }
         });
 
-        if (result.scatterWin) {
-          const midPos = result.scatterWin.positions[0];
-          if (midPos) {
-            const popX = midPos.reel * this.cellW + this.cellW / 2;
-            const popY = midPos.row * this.cellH + this.cellH / 2;
-            const winRands = (result.scatterWin.winCents / 100).toFixed(2);
-            this.floatingWins.spawnPopup(popX, popY, `+R${winRands}`);
-          }
+        if (result.scatterWin && result.scatterWin.winCents > 0) {
+          setTimeout(() => {
+            const midPos = result.scatterWin!.positions[0];
+            if (midPos) {
+              const popX = midPos.reel * this.cellW + this.cellW / 2;
+              const popY = midPos.row * this.cellH + this.cellH / 2;
+              const winRands = (result.scatterWin!.winCents / 100).toFixed(2);
+              this.floatingWins.spawnPopup(popX, popY, `+R${winRands}`, true);
+            }
+          }, result.lineWins.length * 140);
         }
 
         if (isBig || isMega) {
           this.sound.win(isBig, isMega);
-          this.shakeScreen(450, isMega ? 12 : 7);
+          this.shakeScreen(isMega ? 550 : 400, isMega ? 14 : 8);
+
+          const modalTitle = result.totalWinCents >= result.betCents * 50
+            ? "JACKPOT SUPERNOVA!"
+            : isMega
+            ? "MEGA WIN!"
+            : "BIG WIN!";
 
           await this.bigWinModal.show(
-            isMega ? "MEGA WIN!" : "BIG WIN!",
+            modalTitle,
             result.totalWinCents,
             () => this.sound.coinTick(),
             isMega
           );
         } else {
-          this.sound.win(false, false);
-          this.shakeScreen(180, 4);
+          this.sound.win(false, false, isNice);
+          this.shakeScreen(isNice ? 260 : 160, isNice ? 6 : 3.5);
         }
 
         // Display winning symbols overlay breakdown

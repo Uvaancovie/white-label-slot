@@ -86,6 +86,7 @@ export interface SessionState {
   balanceCents: number;
   freeSpinsRemaining: number;
   freeSpinMultiplier: number;
+  persistentWilds?: PersistentWild[];
   stats: SessionStats;
   createdAt: string;
 }
@@ -111,6 +112,16 @@ export interface ScatterWin {
   freeSpinsAwarded: number;
 }
 
+export interface PersistentWild {
+  instanceId: string; // Unique ID to track the exact symbol across multiple spins
+  symbolId: SymbolId; // e.g., 'wild'
+  reel: number; // Target reel index (0..4)
+  row: number; // Target row index (0..2)
+  type: "sticky" | "walking";
+  multiplier?: number; // Optional multiplier for the wild
+  spinsRemaining?: number; // For sticky wilds (optional lifespan)
+}
+
 export interface SpinRequest {
   sessionId: string;
   betCents: number;
@@ -121,6 +132,7 @@ export interface SpinRequest {
 export interface SpinResult {
   roundId: string;
   grid: SymbolId[][]; // [reel][row]
+  persistentWilds?: PersistentWild[]; // Walking & Sticky Wilds active for this round
   stopIndices: number[];
   betCents: number;
   totalWinCents: number;

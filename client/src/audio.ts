@@ -118,6 +118,14 @@ export class SoundBus {
     }
   }
 
+  leverPull() {
+    // Solid mechanical heavy arm crank downward + metallic ratchet click + spring release
+    this.tone(220, 0.05, "sawtooth", 0.06, 90);
+    setTimeout(() => this.tone(340, 0.04, "triangle", 0.05), 35);
+    setTimeout(() => this.tone(580, 0.05, "sawtooth", 0.04, 140), 80);
+    setTimeout(() => this.tone(150, 0.09, "triangle", 0.07, 45), 140);
+  }
+
   spin() {
     this.stopTension();
     // Quick reel acceleration whir
@@ -167,13 +175,25 @@ export class SoundBus {
     this.tone(1200 + Math.random() * 300, 0.04, "sine", 0.035);
   }
 
-  win(big = false, mega = false) {
+  win(big = false, mega = false, nice = false) {
     this.stopTension();
     if (big || mega) {
       this.bigWinChime(mega);
+    } else if (nice) {
+      // Ascending 4-note celebratory arpeggio (C5 -> E5 -> G5 -> C6) with diamond shimmer
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        setTimeout(() => this.tone(freq, 0.18, "sine", 0.065), idx * 60);
+      });
+      setTimeout(() => {
+        this.tone(1567.98, 0.25, "sine", 0.05);
+        this.tone(2093.0, 0.38, "sine", 0.04);
+      }, 260);
     } else {
-      this.tone(523.25, 0.1, "sine", 0.05);
-      setTimeout(() => this.tone(659.25, 0.14, "sine", 0.05), 70);
+      // Crisp 3-note harmonic win chord
+      this.tone(523.25, 0.12, "sine", 0.06);
+      setTimeout(() => this.tone(659.25, 0.15, "sine", 0.06), 60);
+      setTimeout(() => this.tone(783.99, 0.22, "sine", 0.05), 120);
     }
   }
 
@@ -338,6 +358,24 @@ export class SoundBus {
     } catch {
       // Audio fallback
     }
+  }
+
+  wildHop() {
+    // Dynamic footstep hop and springy synthesized chime
+    this.tone(440, 0.08, "triangle", 0.08, 660);
+    setTimeout(() => {
+      this.tone(880, 0.12, "sine", 0.07);
+      this.tone(1320, 0.18, "sine", 0.05);
+    }, 40);
+  }
+
+  wildLock() {
+    // Crisp metallic lock-in tone
+    this.tone(587.33, 0.09, "sine", 0.08);
+    setTimeout(() => {
+      this.tone(1174.66, 0.22, "triangle", 0.09);
+      this.tone(1760, 0.3, "sine", 0.06);
+    }, 50);
   }
 
   freeSpins() {

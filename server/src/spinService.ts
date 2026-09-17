@@ -5,6 +5,7 @@ import {
   evaluateSpin,
   rollStops,
   type GameConfig,
+  type PersistentWild,
   type SessionState,
   type SpinResult,
 } from "@sa-slot/shared";
@@ -61,6 +62,74 @@ export function executeSpin(
   const stopIndices = rollStops(config, rng);
   const grid = buildGrid(config, stopIndices);
 
+  // 1. Process existing persistent wilds from session
+  const previousWilds: PersistentWild[] = session.persistentWilds ?? [];
+  const activePersistentWilds: PersistentWild[] = [];
+
+  for (const prev of previousWilds) {
+    if (prev.type === "walking") {
+      // Walking Wild steps 1 reel to the left
+      const nextReel = prev.reel - 1;
+      if (nextReel >= 0) {
+        activePersistentWilds.push({
+          ...prev,
+          reel: nextReel,
+        });
+      }
+      // If nextReel < 0, it falls off the board and is destroyed
+    } else if (prev.type === "sticky") {
+      // Sticky Wild remains in place
+      if (prev.spinsRemaining !== undefined) {
+        const remaining = prev.spinsRemaining - 1;
+        if (remaining > 0) {
+          activePersistentWilds.push({
+            ...prev,
+            spinsRemaining: remaining,
+          });
+        }
+      } else {
+        activePersistentWilds.push(prev);
+      }
+    }
+  }
+
+  // 2. Turn newly landed natural wild symbols into persistent wilds if wild feature enabled
+  if (config.features.wild) {
+    for (let reel = 0; reel < grid.length; reel++) {
+      for (let row = 0; row < grid[reel].length; row++) {
+        if (grid[reel][row] === "wild") {
+          // Check if this position is already occupied by an active persistent wild
+          const alreadyOccupied = activePersistentWilds.some(
+            (w) => w.reel === reel && w.row === row
+          );
+          if (!alreadyOccupied) {
+            // Free spins grant Sticky Wilds; Base spins grant Walking Wilds (walking left)
+            const wildType = willUseFreeSpin ? "sticky" : "walking";
+            activePersistentWilds.push({
+              instanceId: nanoid(8),
+              symbolId: "wild",
+              reel,
+              row,
+              type: wildType,
+              multiplier: 1,
+              spinsRemaining: wildType === "sticky" ? 3 : undefined,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Overlay all active persistent wilds onto the grid so they participate in win evaluations
+  for (const pw of activePersistentWilds) {
+    if (pw.reel >= 0 && pw.reel < grid.length && pw.row >= 0 && pw.row < grid[pw.reel].length) {
+      grid[pw.reel][pw.row] = "wild";
+    }
+  }
+
+  // Save updated persistent wilds state in session
+  session.persistentWilds = activePersistentWilds;
+
   const multiplier = willUseFreeSpin
     ? session.freeSpinMultiplier
     : 1;
@@ -90,6 +159,7 @@ export function executeSpin(
   return {
     roundId,
     grid,
+    persistentWilds: activePersistentWilds,
     stopIndices,
     betCents,
     totalWinCents,

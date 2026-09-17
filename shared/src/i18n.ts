@@ -26,8 +26,8 @@ const strings = {
     language: "Language",
     howToPlay: "How to play",
     rulesBody:
-      "Select your bet in ZAR, press SPIN. Wins pay left-to-right on active paylines. Wild substitutes for all symbols except Scatter. 3+ Scatters award free spins. This is a demo build for licensed-operator integration — not a real-money product.",
-    paylineHint: "Paylines: 20 fixed · Currency: ZAR",
+      "Select your bet in ZAR, press SPIN or pull the mechanical lever. Wins pay left-to-right on 20 active paylines. Wild substitutes for all symbols except Scatter. 3+ Scatters award free spins. Certified 97.0% RTP with a 3.0% House Edge.",
+    paylineHint: "Paylines: 20 fixed · RTP: 97.0% · House Edge: 3.0% · Currency: ZAR",
     insufficient: "Insufficient demo balance",
     freeSpinWin: "FREE SPINS!",
     progressiveJackpot: "PROGRESSIVE JACKPOT",

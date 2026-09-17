@@ -1,7 +1,7 @@
 import { BlurFilter, Container, Graphics, Text } from "pixi.js";
 import { gsap } from "gsap";
-import type { GameConfig, SymbolId, LineWin, SpinResult } from "@sa-slot/shared";
-import { createSymbolSprite } from "./symbols.js";
+import type { GameConfig, SymbolId, LineWin, SpinResult, PersistentWild } from "@sa-slot/shared";
+import { createSymbolSprite, SymbolContainer } from "./symbols.js";
 
 /** Subtle floating diamond background animation in PixiJS */
 export class DiamondBackground {
@@ -134,14 +134,18 @@ export interface ReelViewOptions {
   onReelStop?: (reelIndex: number, containsScatter: boolean) => void;
   onTensionChange?: (inTension: boolean) => void;
   onShakeScreen?: () => void;
+  onWildHop?: (wild: PersistentWild) => void;
+  onWildLand?: (wild: PersistentWild) => void;
 }
 
 /**
  * 5-reel view with realistic mechanical recoil, high-speed spin illusion,
- * elastic bounce settle, and dramatic scatter suspense anticipation mode.
+ * elastic bounce settle, dramatic scatter suspense, and dedicated Persistent
+ * Wilds layer for decoupled Walking & Sticky Wilds animation.
  */
 export class ReelBoard {
   readonly container = new Container();
+  readonly persistentLayer = new Container(); // Decoupled layer for Walking & Sticky Wilds
   private reels: Container[] = [];
   private masks: Graphics[] = [];
   private suspenseFrames: Graphics[] = [];
@@ -156,8 +160,20 @@ export class ReelBoard {
   private onReelStop?: (reelIndex: number, containsScatter: boolean) => void;
   private onTensionChange?: (inTension: boolean) => void;
   private onShakeScreen?: () => void;
+  private onWildHop?: (wild: PersistentWild) => void;
+  private onWildLand?: (wild: PersistentWild) => void;
   private stripCache: SymbolId[][];
   private currentGrid: SymbolId[][] = [];
+
+  // Persistent Wilds state management
+  private persistentWildSprites = new Map<string, Container>();
+  private activePersistentWilds: PersistentWild[] = [];
+  private stickyPulseTweens = new Map<string, gsap.core.Tween>();
+
+  // Spin glowing & shaking symbol loop
+  private spinAnimFrameId: number | null = null;
+  private activeSpinningReels = new Set<number>();
+  private spinStartTime = 0;
 
   constructor(opts: ReelViewOptions) {
     this.cellW = opts.cellW;
@@ -168,6 +184,8 @@ export class ReelBoard {
     this.onReelStop = opts.onReelStop;
     this.onTensionChange = opts.onTensionChange;
     this.onShakeScreen = opts.onShakeScreen;
+    this.onWildHop = opts.onWildHop;
+    this.onWildLand = opts.onWildLand;
     this.stripCache = opts.config.reelStrips;
 
     this.container.addChild(this.frameGfx);
@@ -191,6 +209,9 @@ export class ReelBoard {
     }
 
     this.container.addChild(this.linesGfx);
+
+    // Persistent Wilds layer sits above masked reels & lines, below overlays
+    this.container.addChild(this.persistentLayer);
 
     // Initial grid setup
     const starter: SymbolId[][] = Array.from({ length: 5 }, (_, r) =>
@@ -253,6 +274,16 @@ export class ReelBoard {
       this.linesGfx.stroke({ width: 2, color: 0xd0d8e0, alpha: 0.75 });
     }
 
+    // Update persistent wild positions
+    this.activePersistentWilds.forEach((w) => {
+      const spr = this.persistentWildSprites.get(w.instanceId);
+      if (spr) {
+        spr.pivot.set(this.cellW / 2, this.cellH / 2);
+        spr.x = w.reel * this.cellW + this.cellW / 2;
+        spr.y = w.row * this.cellH + this.cellH / 2;
+      }
+    });
+
     if (this.currentGrid.length > 0) {
       this.setGrid(this.currentGrid);
     }
@@ -274,6 +305,305 @@ export class ReelBoard {
     return this.spinning;
   }
 
+  getPersistentWilds(): PersistentWild[] {
+    return [...this.activePersistentWilds];
+  }
+
+  setPersistentWilds(wilds: PersistentWild[]) {
+    // Clear previous
+    this.persistentWildSprites.forEach((spr) => {
+      this.persistentLayer.removeChild(spr);
+      spr.destroy({ children: true });
+    });
+    this.persistentWildSprites.clear();
+    this.activePersistentWilds = [];
+
+    // Add new
+    wilds.forEach((w) => {
+      const spr = this.createPersistentWildContainer(w);
+      this.persistentWildSprites.set(w.instanceId, spr);
+      this.persistentLayer.addChild(spr);
+    });
+    this.activePersistentWilds = [...wilds];
+  }
+
+  private createPersistentWildContainer(wild: PersistentWild): Container {
+    const cont = new Container();
+    cont.pivot.set(this.cellW / 2, this.cellH / 2);
+    cont.x = wild.reel * this.cellW + this.cellW / 2;
+    cont.y = wild.row * this.cellH + this.cellH / 2;
+
+    // Base symbol sprite
+    const symSpr = createSymbolSprite(wild.symbolId || "wild", this.cellW, this.cellH);
+    cont.addChild(symSpr);
+
+    // Distinctive glowing badge & aura for Walking vs Sticky Wild
+    const fxGfx = new Graphics();
+    const pad = 2;
+    const w = this.cellW - pad * 2;
+    const h = this.cellH - pad * 2;
+
+    if (wild.type === "walking") {
+      // Golden / Amber dynamic moving border with trail glow
+      fxGfx.roundRect(pad, pad, w, h, 12);
+      fxGfx.stroke({ width: 3.5, color: 0xffd700, alpha: 0.95 });
+      fxGfx.roundRect(pad - 2, pad - 2, w + 4, h + 4, 14);
+      fxGfx.stroke({ width: 2, color: 0xff9900, alpha: 0.65 });
+
+      // Golden badge pill: "WALK"
+      fxGfx.roundRect(pad + 4, h - 15, 46, 14, 6);
+      fxGfx.fill({ color: 0xb8860b, alpha: 0.95 });
+      fxGfx.stroke({ width: 1, color: 0xffd700 });
+
+      const walkLabel = new Text({
+        text: "WALK",
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 9,
+          fontWeight: "800",
+          fill: "#ffffff",
+          letterSpacing: 1,
+        },
+      });
+      walkLabel.x = pad + 10;
+      walkLabel.y = h - 14;
+      cont.addChild(fxGfx, walkLabel);
+    } else {
+      // Sticky Wild: Icy Diamond / Emerald Lock Frame
+      fxGfx.roundRect(pad, pad, w, h, 12);
+      fxGfx.stroke({ width: 3.5, color: 0x00f5d4, alpha: 0.95 });
+      fxGfx.roundRect(pad - 2, pad - 2, w + 4, h + 4, 14);
+      fxGfx.stroke({ width: 2, color: 0x00d2ff, alpha: 0.65 });
+
+      // Lock badge pill: "LOCKED"
+      fxGfx.roundRect(pad + 4, h - 15, 52, 14, 6);
+      fxGfx.fill({ color: 0x005b52, alpha: 0.95 });
+      fxGfx.stroke({ width: 1, color: 0x00f5d4 });
+
+      const stickyLabel = new Text({
+        text: "LOCKED",
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 9,
+          fontWeight: "800",
+          fill: "#ffffff",
+          letterSpacing: 1,
+        },
+      });
+      stickyLabel.x = pad + 8;
+      stickyLabel.y = h - 14;
+      cont.addChild(fxGfx, stickyLabel);
+    }
+
+    // Optional multiplier badge in top-right
+    if (wild.multiplier && wild.multiplier > 1) {
+      const multGfx = new Graphics();
+      multGfx.circle(w - 6, pad + 8, 11);
+      multGfx.fill({ color: 0xff2a3b, alpha: 0.95 });
+      multGfx.stroke({ width: 1.5, color: 0xffd700 });
+
+      const multText = new Text({
+        text: `${wild.multiplier}x`,
+        style: {
+          fontFamily: "Rajdhani, Inter, Arial, sans-serif",
+          fontSize: 10,
+          fontWeight: "800",
+          fill: "#ffd700",
+        },
+      });
+      multText.anchor.set(0.5);
+      multText.x = w - 6;
+      multText.y = pad + 8;
+      cont.addChild(multGfx, multText);
+    }
+
+    return cont;
+  }
+
+  /**
+   * GSAP Walking Wild hop animation, Sticky Wild pulse synchronization,
+   * and off-board falling transition.
+   */
+  async animatePersistentWilds(
+    previousWilds: PersistentWild[],
+    currentWilds: PersistentWild[],
+  ): Promise<void> {
+    const promises: Promise<void>[] = [];
+
+    // 1. Process existing wilds: walking hops or off-board destruction
+    previousWilds.forEach((prev) => {
+      const spr = this.persistentWildSprites.get(prev.instanceId);
+      if (!spr) return;
+
+      const curr = currentWilds.find((w) => w.instanceId === prev.instanceId);
+
+      if (curr) {
+        // Wild still on board! Check if moved to a new reel (Walking Wild)
+        if (prev.reel !== curr.reel || prev.row !== curr.row) {
+          const targetX = curr.reel * this.cellW + this.cellW / 2;
+          const targetY = curr.row * this.cellH + this.cellH / 2;
+          const arcHeight = Math.min(32, this.cellH * 0.42);
+
+          const hopPromise = new Promise<void>((resolve) => {
+            const tl = gsap.timeline({
+              onComplete: () => {
+                spr.x = targetX;
+                spr.y = targetY;
+                spr.scale.set(1.0);
+                spr.rotation = 0;
+                this.onWildHop?.(curr);
+                resolve();
+              },
+            });
+
+            // Realistic hop trajectory: horizontal slide + parabolic arc jump + squash/stretch
+            tl.to(spr.scale, {
+              x: 1.22,
+              y: 0.82,
+              duration: 0.12,
+              ease: "power2.in",
+            })
+              .to(
+                spr,
+                {
+                  x: targetX,
+                  duration: 0.38,
+                  ease: "power1.inOut",
+                },
+                "<0.08",
+              )
+              .to(
+                spr,
+                {
+                  y: Math.min(spr.y, targetY) - arcHeight,
+                  duration: 0.19,
+                  ease: "sine.out",
+                },
+                "<",
+              )
+              .to(
+                spr.scale,
+                {
+                  x: 0.88,
+                  y: 1.25,
+                  duration: 0.19,
+                  ease: "sine.out",
+                },
+                "<",
+              )
+              .to(spr, {
+                y: targetY,
+                duration: 0.19,
+                ease: "power2.in",
+              })
+              .to(
+                spr.scale,
+                {
+                  x: 1.18,
+                  y: 0.85,
+                  duration: 0.12,
+                  ease: "power2.out",
+                },
+                "<0.08",
+              )
+              .to(spr.scale, {
+                x: 1.0,
+                y: 1.0,
+                duration: 0.14,
+                ease: "elastic.out(1.5, 0.4)",
+              });
+          });
+
+          promises.push(hopPromise);
+        }
+      } else {
+        // Wild walked off the board (e.g., stepped left past reel 0)!
+        const exitPromise = new Promise<void>((resolve) => {
+          gsap
+            .timeline({
+              onComplete: () => {
+                this.persistentLayer.removeChild(spr);
+                spr.destroy({ children: true });
+                this.persistentWildSprites.delete(prev.instanceId);
+                resolve();
+              },
+            })
+            .to(spr, {
+              x: -this.cellW,
+              alpha: 0,
+              duration: 0.35,
+              ease: "power2.in",
+            })
+            .to(
+              spr.scale,
+              {
+                x: 0.6,
+                y: 0.6,
+                duration: 0.35,
+                ease: "power2.in",
+              },
+              "<",
+            );
+        });
+
+        promises.push(exitPromise);
+      }
+    });
+
+    // 2. Process newly landed persistent wilds (entrance animation)
+    currentWilds.forEach((curr) => {
+      const existing = previousWilds.find((w) => w.instanceId === curr.instanceId);
+      if (!existing) {
+        // Brand new wild landed!
+        const newSpr = this.createPersistentWildContainer(curr);
+        newSpr.scale.set(0);
+        newSpr.alpha = 0;
+        this.persistentWildSprites.set(curr.instanceId, newSpr);
+        this.persistentLayer.addChild(newSpr);
+
+        const enterPromise = new Promise<void>((resolve) => {
+          gsap
+            .timeline({
+              delay: 0.1,
+              onComplete: () => {
+                newSpr.scale.set(1.0);
+                newSpr.alpha = 1;
+                this.onWildLand?.(curr);
+                resolve();
+              },
+            })
+            .to(newSpr, {
+              alpha: 1,
+              duration: 0.15,
+            })
+            .to(
+              newSpr.scale,
+              {
+                x: 1.35,
+                y: 1.35,
+                duration: 0.22,
+                ease: "back.out(2.5)",
+              },
+              "<",
+            )
+            .to(newSpr.scale, {
+              x: 1.0,
+              y: 1.0,
+              duration: 0.18,
+              ease: "power2.inOut",
+            });
+        });
+
+        promises.push(enterPromise);
+      }
+    });
+
+    this.activePersistentWilds = [...currentWilds];
+    if (promises.length > 0) {
+      await Promise.all(promises);
+    }
+  }
+
   setGrid(grid: SymbolId[][]) {
     this.currentGrid = grid;
     for (let reel = 0; reel < 5; reel++) {
@@ -284,71 +614,221 @@ export class ReelBoard {
   }
 
   /**
-   * Animate Cheetah symbol popup with dramatic 3D pulse, shake, and golden glow upon winning
+   * Animate all winning symbols with high-impact 3D spring pop, squash/stretch,
+   * symbol-specific effects (scatter diamond glow, wild ruby pulse, cheetah roar, high-pay bounce),
+   * and staggered cascading reveal from left to right.
    */
-  animateCheetahWinPop(positions: Array<{ reel: number; row: number }>) {
+  animateAllWinningSymbols(
+    positions: Array<{ reel: number; row: number }>,
+    grid: SymbolId[][],
+    winTier: "small" | "nice" | "big" | "mega" = "small"
+  ) {
     const above = 10;
-    positions.forEach((p) => {
+    const sortedPositions = [...positions].sort((a, b) => a.reel - b.reel || a.row - b.row);
+
+    sortedPositions.forEach((p, idx) => {
       const reel = this.reels[p.reel];
       if (!reel) return;
-      // Index of symbol in reel container: 'above' offset + row index
       const childIndex = above + p.row;
       const symSpr = reel.children[childIndex] as Container | undefined;
       if (!symSpr) return;
 
-      // Center pivot point for smooth pop scaling
+      const symId = (grid[p.reel] && grid[p.reel][p.row]) || "10";
+      const isCheetah = symId === "cheetah";
+      const isScatter = symId === "scatter";
+      const isWild = symId === "wild";
+      const isHighPay = ["springbok", "gold", "protea", "drum"].includes(symId);
+
+      // Pivot to center for smooth pop scaling
       symSpr.pivot.set(this.cellW / 2, this.cellH / 2);
       symSpr.x = this.cellW / 2;
       symSpr.y = p.row * this.cellH + this.cellH / 2;
 
-      // GSAP timeline for instant pop-up, multi-stage shake, and settle
       const origX = symSpr.x;
       const origY = symSpr.y;
+      const staggerDelay = idx * 0.06;
 
-      gsap.timeline()
-        .to(symSpr.scale, {
-          x: 1.35,
-          y: 1.35,
+      const tl = gsap.timeline({
+        delay: staggerDelay,
+        onComplete: () => {
+          symSpr.pivot.set(0, 0);
+          symSpr.x = 0;
+          symSpr.y = p.row * this.cellH;
+          symSpr.rotation = 0;
+          symSpr.scale.set(1.0);
+        },
+      });
+
+      if (isCheetah) {
+        // Cheetah: 3D pop, savage shake, and gold radiance
+        tl.to(symSpr.scale, {
+          x: 1.38,
+          y: 1.38,
           duration: 0.18,
           ease: "back.out(3.5)",
         })
-        .to(symSpr, {
-          x: origX + 7,
-          y: origY - 4,
-          rotation: 0.09,
-          duration: 0.05,
-          repeat: 7,
-          yoyo: true,
-          ease: "power1.inOut",
-        }, "-=0.04")
-        .to(symSpr, {
-          x: origX,
-          y: origY,
-          rotation: 0,
-          duration: 0.1,
-          ease: "power1.out",
+          .to(
+            symSpr,
+            {
+              x: origX + 8,
+              y: origY - 5,
+              rotation: 0.1,
+              duration: 0.045,
+              repeat: 8,
+              yoyo: true,
+              ease: "power1.inOut",
+            },
+            "-=0.04"
+          )
+          .to(symSpr, {
+            x: origX,
+            y: origY,
+            rotation: 0,
+            duration: 0.08,
+            ease: "power1.out",
+          })
+          .to(symSpr.scale, {
+            x: 1.15,
+            y: 1.15,
+            duration: 0.3,
+            repeat: 2,
+            yoyo: true,
+            ease: "sine.inOut",
+          })
+          .to(symSpr.scale, {
+            x: 1.0,
+            y: 1.0,
+            duration: 0.25,
+            ease: "power2.inOut",
+            delay: 0.5,
+          });
+      } else if (isScatter) {
+        // Diamond Scatter: Crystalline scale pop, twinkle rotation, and harmonic pulse
+        tl.to(symSpr.scale, {
+          x: 1.35,
+          y: 1.35,
+          duration: 0.2,
+          ease: "back.out(3.0)",
         })
-        .to(symSpr.scale, {
-          x: 1.12,
-          y: 1.12,
-          duration: 0.25,
+          .to(
+            symSpr,
+            {
+              rotation: 0.08,
+              duration: 0.1,
+              repeat: 5,
+              yoyo: true,
+              ease: "sine.inOut",
+            },
+            "-=0.08"
+          )
+          .to(symSpr, {
+            rotation: 0,
+            duration: 0.1,
+            ease: "power1.out",
+          })
+          .to(symSpr.scale, {
+            x: 1.14,
+            y: 1.14,
+            duration: 0.28,
+            repeat: 2,
+            yoyo: true,
+            ease: "sine.inOut",
+          })
+          .to(symSpr.scale, {
+            x: 1.0,
+            y: 1.0,
+            duration: 0.25,
+            ease: "power2.inOut",
+            delay: 0.4,
+          });
+      } else if (isWild) {
+        // Wild: Fierce scale pop, squash/stretch impact, and ruby heartbeat
+        tl.to(symSpr.scale, {
+          x: 1.4,
+          y: 0.85,
+          duration: 0.14,
           ease: "power2.out",
         })
-        .to(symSpr.scale, {
-          x: 1.0,
-          y: 1.0,
-          duration: 0.3,
-          ease: "power2.inOut",
-          delay: 0.8,
-          onComplete: () => {
-            symSpr.pivot.set(0, 0);
-            symSpr.x = 0;
-            symSpr.y = p.row * this.cellH;
-            symSpr.rotation = 0;
-            symSpr.scale.set(1.0);
-          },
-        });
+          .to(symSpr.scale, {
+            x: 0.9,
+            y: 1.35,
+            duration: 0.16,
+            ease: "elastic.out(1.8, 0.4)",
+          })
+          .to(symSpr.scale, {
+            x: 1.15,
+            y: 1.15,
+            duration: 0.26,
+            repeat: 2,
+            yoyo: true,
+            ease: "sine.inOut",
+          })
+          .to(symSpr.scale, {
+            x: 1.0,
+            y: 1.0,
+            duration: 0.25,
+            ease: "power2.inOut",
+            delay: 0.4,
+          });
+      } else if (isHighPay) {
+        // High Pays (Springbok, Gold, Protea, Drum): Energetic double bounce & scale
+        tl.to(symSpr.scale, {
+          x: 1.28,
+          y: 1.28,
+          duration: 0.18,
+          ease: "back.out(2.5)",
+        })
+          .to(symSpr, {
+            y: origY - 8,
+            duration: 0.15,
+            repeat: 3,
+            yoyo: true,
+            ease: "power1.inOut",
+          })
+          .to(symSpr, {
+            y: origY,
+            duration: 0.1,
+            ease: "power1.out",
+          })
+          .to(symSpr.scale, {
+            x: 1.0,
+            y: 1.0,
+            duration: 0.25,
+            ease: "power2.inOut",
+            delay: 0.3,
+          });
+      } else {
+        // Low Pay Royals (A, K, Q, J, 10): Clean, snappy spring pop
+        tl.to(symSpr.scale, {
+          x: 1.2,
+          y: 1.2,
+          duration: 0.16,
+          ease: "back.out(2.0)",
+        })
+          .to(symSpr.scale, {
+            x: 1.08,
+            y: 1.08,
+            duration: 0.22,
+            repeat: 1,
+            yoyo: true,
+            ease: "sine.inOut",
+          })
+          .to(symSpr.scale, {
+            x: 1.0,
+            y: 1.0,
+            duration: 0.2,
+            ease: "power2.inOut",
+            delay: 0.3,
+          });
+      }
     });
+  }
+
+  /**
+   * Animate Cheetah symbol popup with dramatic 3D pulse, shake, and golden glow upon winning
+   */
+  animateCheetahWinPop(positions: Array<{ reel: number; row: number }>) {
+    this.animateAllWinningSymbols(positions, this.currentGrid, "big");
   }
 
   private paintReel(reelIndex: number, symbols: SymbolId[]) {
@@ -379,19 +859,97 @@ export class ReelBoard {
     }
   }
 
+  private startSpinAnimationLoop() {
+    this.stopSpinAnimationLoop();
+    this.spinStartTime = performance.now();
+    const update = () => {
+      if (!this.spinning) {
+        this.stopSpinAnimationLoop();
+        return;
+      }
+      const time = (performance.now() - this.spinStartTime) / 1000;
+
+      // Update symbol icons on all currently spinning reels
+      this.activeSpinningReels.forEach((reelIdx) => {
+        const reel = this.reels[reelIdx];
+        if (!reel) return;
+        reel.children.forEach((child) => {
+          const sym = child as unknown as SymbolContainer;
+          sym.updateSpinAnimation?.(time);
+        });
+      });
+
+      // Also update persistent wild sprites on board
+      this.activePersistentWilds.forEach((w) => {
+        const spr = this.persistentWildSprites.get(w.instanceId);
+        if (spr && spr.children[0]) {
+          const symChild = spr.children[0] as unknown as SymbolContainer;
+          symChild.updateSpinAnimation?.(time);
+        }
+      });
+
+      this.spinAnimFrameId = requestAnimationFrame(update);
+    };
+    this.spinAnimFrameId = requestAnimationFrame(update);
+  }
+
+  private stopSpinAnimationLoop() {
+    if (this.spinAnimFrameId !== null) {
+      cancelAnimationFrame(this.spinAnimFrameId);
+      this.spinAnimFrameId = null;
+    }
+    this.activeSpinningReels.clear();
+    // Reset spinning state on all symbols
+    for (let r = 0; r < 5; r++) {
+      this.reels[r]?.children.forEach((child) => {
+        const sym = child as unknown as SymbolContainer;
+        sym.setSpinningState?.(false);
+      });
+    }
+    this.activePersistentWilds.forEach((w) => {
+      const spr = this.persistentWildSprites.get(w.instanceId);
+      if (spr && spr.children[0]) {
+        const symChild = spr.children[0] as unknown as SymbolContainer;
+        symChild.setSpinningState?.(false);
+      }
+    });
+  }
+
   /**
-   * Spin all 5 reels simultaneously at high speed, then land each reel
-   * sequentially with mechanical recoil, bounce-back, and dramatic scatter suspense.
+   * Spin all 5 reels simultaneously at high speed while Walking and Sticky Wilds
+   * stay decoupled on the persistent layer.
    */
-  async spinTo(grid: SymbolId[][]): Promise<void> {
+  async spinTo(grid: SymbolId[][], persistentWilds?: PersistentWild[]): Promise<void> {
     if (this.spinning) return;
     this.spinning = true;
 
     // Reset suspense frames
     this.suspenseFrames.forEach((f) => (f.visible = false));
 
+    // Continuous breathing pulse on Sticky Wilds while reels spin behind them
+    this.activePersistentWilds
+      .filter((w) => w.type === "sticky")
+      .forEach((w) => {
+        const spr = this.persistentWildSprites.get(w.instanceId);
+        if (spr) {
+          const tween = gsap.to(spr.scale, {
+            x: 1.09,
+            y: 1.09,
+            duration: 0.35,
+            repeat: -1,
+            yoyo: true,
+            ease: "sine.inOut",
+          });
+          this.stickyPulseTweens.set(w.instanceId, tween);
+        }
+      });
+
     if (this.reducedMotion) {
       this.setGrid(grid);
+      if (persistentWilds) {
+        await this.animatePersistentWilds(this.activePersistentWilds, persistentWilds);
+      }
+      this.stopStickyPulses();
       this.spinning = false;
       return;
     }
@@ -402,6 +960,27 @@ export class ReelBoard {
     for (let r = 0; r < 5; r++) {
       this.paintReel(r, grid[r]);
     }
+
+    // Activate spinning state (glow and shake) on all 5 reels
+    this.activeSpinningReels.clear();
+    for (let r = 0; r < 5; r++) {
+      this.activeSpinningReels.add(r);
+      this.reels[r].children.forEach((child) => {
+        const sym = child as unknown as SymbolContainer;
+        sym.setSpinningState?.(true, 1.0);
+      });
+    }
+
+    // Also activate spin state on persistent wilds
+    this.activePersistentWilds.forEach((w) => {
+      const spr = this.persistentWildSprites.get(w.instanceId);
+      if (spr && spr.children[0]) {
+        const symChild = spr.children[0] as unknown as SymbolContainer;
+        symChild.setSpinningState?.(true, 1.2);
+      }
+    });
+
+    this.startSpinAnimationLoop();
 
     // Step 1: Initial upward recoil snap for all 5 reels simultaneously
     await Promise.all(this.reels.map((reel, idx) => this.animateStartRecoil(reel, idx)));
@@ -426,10 +1005,15 @@ export class ReelBoard {
 
       if (isSuspense) {
         this.showSuspenseFrame(reelIdx);
+        // Elevate spin intensity and glow during suspense!
+        reel.children.forEach((child) => {
+          const sym = child as unknown as SymbolContainer;
+          sym.setSpinningState?.(true, 1.55);
+        });
       }
 
       const duration = stopTimes[reelIdx] + (isSuspense ? 1100 : 0);
-      await this.animateReelPlungeAndSettle(reel, boardH, duration);
+      await this.animateReelPlungeAndSettle(reel, boardH, duration, reelIdx);
 
       // Hide suspense frame on stop
       this.suspenseFrames[reelIdx].visible = false;
@@ -452,21 +1036,40 @@ export class ReelBoard {
       this.onTensionChange?.(false);
     }
 
+    this.stopSpinAnimationLoop();
+    this.stopStickyPulses();
     this.setGrid(grid);
+
+    // Step 3: Animate Walking Wild transitions and newly landed persistent wilds
+    if (persistentWilds) {
+      await this.animatePersistentWilds(this.activePersistentWilds, persistentWilds);
+    }
+
     this.spinning = false;
+  }
+
+  private stopStickyPulses() {
+    this.stickyPulseTweens.forEach((t) => t.kill());
+    this.stickyPulseTweens.clear();
+    this.activePersistentWilds.forEach((w) => {
+      const spr = this.persistentWildSprites.get(w.instanceId);
+      if (spr) {
+        spr.scale.set(1.0);
+      }
+    });
   }
 
   private calculateStopDelays(grid: SymbolId[][]): number[] {
     if (this.turbo) {
-      return [100, 150, 200, 250, 300];
+      return [60, 95, 130, 165, 200];
     }
-    return [260, 390, 520, 650, 780];
+    return [140, 200, 260, 320, 380];
   }
 
   private animateStartRecoil(reel: Container, reelIdx: number): Promise<void> {
     return new Promise((resolve) => {
-      const delay = reelIdx * (this.turbo ? 0.012 : 0.025);
-      const dur = this.turbo ? 0.05 : 0.09;
+      const delay = reelIdx * (this.turbo ? 0.008 : 0.015);
+      const dur = this.turbo ? 0.035 : 0.055;
 
       gsap.timeline({
         delay,
@@ -476,7 +1079,7 @@ export class ReelBoard {
         },
       })
       .to(reel, {
-        y: -18,
+        y: -14,
         duration: dur * 0.45,
         ease: "power2.out",
       })
@@ -491,7 +1094,8 @@ export class ReelBoard {
   private animateReelPlungeAndSettle(
     reel: Container,
     boardH: number,
-    durationMs: number
+    durationMs: number,
+    reelIdx: number
   ): Promise<void> {
     return new Promise((resolve) => {
       const fromY = -boardH * 2.2;
@@ -510,6 +1114,11 @@ export class ReelBoard {
           reel.y = 0;
           reel.scale.set(1.0);
           reel.filters = [];
+          this.activeSpinningReels.delete(reelIdx);
+          reel.children.forEach((child) => {
+            const sym = child as unknown as SymbolContainer;
+            sym.setSpinningState?.(false);
+          });
           resolve();
         },
       });
@@ -528,6 +1137,11 @@ export class ReelBoard {
       // 2. Physical impact instant remove blur + mechanical elastic rebound & squash/stretch
       .call(() => {
         reel.filters = [];
+        this.activeSpinningReels.delete(reelIdx);
+        reel.children.forEach((child) => {
+          const sym = child as unknown as SymbolContainer;
+          sym.setSpinningState?.(false);
+        });
       })
       .to(reel, {
         y: 0,
@@ -562,7 +1176,7 @@ export class ReelBoard {
   }
 }
 
-/** Highlight winning cells with animated pulsing ruby/diamond frames */
+/** Highlight winning cells with animated pulsing ruby/diamond frames and corner diamond sparkles */
 export class WinHighlighter {
   readonly container = new Container();
   private cellW: number;
@@ -570,10 +1184,12 @@ export class WinHighlighter {
   private animTimer: number | null = null;
   private frames: Graphics[] = [];
   private shimmers: Array<{ sheen: Graphics; x: number; y: number; w: number; h: number }> = [];
+  private cornerStars: Array<{ g: Graphics; x: number; y: number; rotSpeed: number; scaleBase: number }> = [];
   private currentPositions: Array<{ reel: number; row: number }> = [];
   private currentColor = 0xff2a3b;
 
   private cheetahAuras: Array<{ g: Graphics; x: number; y: number; w: number; h: number }> = [];
+  private scatterAuras: Array<{ g: Graphics; x: number; y: number; w: number; h: number }> = [];
 
   constructor(cellW: number, cellH: number) {
     this.cellW = cellW;
@@ -598,7 +1214,9 @@ export class WinHighlighter {
     this.container.removeChildren();
     this.frames = [];
     this.shimmers = [];
+    this.cornerStars = [];
     this.cheetahAuras = [];
+    this.scatterAuras = [];
   }
 
   private currentGrid?: SymbolId[][];
@@ -614,8 +1232,12 @@ export class WinHighlighter {
     this.currentGrid = grid;
 
     for (const p of positions) {
-      const isCheetah = grid && grid[p.reel] && grid[p.reel][p.row] === "cheetah";
-      const isScatter = grid && grid[p.reel] && grid[p.reel][p.row] === "scatter";
+      const sym = grid && grid[p.reel] && grid[p.reel][p.row];
+      const isCheetah = sym === "cheetah";
+      const isScatter = sym === "scatter";
+      const isWild = sym === "wild";
+      const isHighPay = ["springbok", "gold", "protea", "drum"].includes(sym || "");
+
       const cellCont = new Container();
 
       const x = p.reel * this.cellW + 2;
@@ -627,48 +1249,94 @@ export class WinHighlighter {
 
       if (isCheetah) {
         // Cheetah Golden Ember Frame & Electric Glow
-        g.roundRect(x - 3, y - 3, w + 6, h + 6, 14);
-        g.fill({ color: 0xff8c00, alpha: 0.55 });
+        g.roundRect(x - 4, y - 4, w + 8, h + 8, 16);
+        g.fill({ color: 0xff8c00, alpha: 0.6 });
 
-        g.roundRect(x, y, w, h, 10);
-        g.fill({ color: 0xffb300, alpha: 0.35 });
-        g.stroke({ width: 5, color: 0xffd700, alpha: 1.0 });
+        g.roundRect(x, y, w, h, 12);
+        g.fill({ color: 0xffb300, alpha: 0.38 });
+        g.stroke({ width: 5.5, color: 0xffd700, alpha: 1.0 });
 
-        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 9);
         g.stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
 
-        // Special dynamic Cheetah aura layer
         const cheetahG = new Graphics();
         cellCont.addChild(cheetahG);
         this.cheetahAuras.push({ g: cheetahG, x: x + w / 2, y: y + h / 2, w, h });
       } else if (isScatter) {
-        // Diamond Cyan Glow Frame
-        g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
-        g.fill({ color: 0x00d2ff, alpha: 0.45 });
+        // Diamond Cyan / Crystal Glow Frame
+        g.roundRect(x - 3, y - 3, w + 6, h + 6, 14);
+        g.fill({ color: 0x00e5ff, alpha: 0.5 });
 
-        g.roundRect(x, y, w, h, 10);
-        g.fill({ color: 0x00f5d4, alpha: 0.25 });
-        g.stroke({ width: 4.5, color: 0x00d2ff, alpha: 1.0 });
+        g.roundRect(x, y, w, h, 11);
+        g.fill({ color: 0x00f5d4, alpha: 0.3 });
+        g.stroke({ width: 5, color: 0x00e5ff, alpha: 1.0 });
 
         g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
-        g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.95 });
-      } else {
-        // Outer ruby glow aura
-        g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
-        g.fill({ color: 0xd61c24, alpha: 0.35 });
+        g.stroke({ width: 2, color: 0xffffff, alpha: 0.98 });
 
-        // Crimson win frame
+        const scatterG = new Graphics();
+        cellCont.addChild(scatterG);
+        this.scatterAuras.push({ g: scatterG, x: x + w / 2, y: y + h / 2, w, h });
+      } else if (isWild) {
+        // Wild Intense Crimson & Ruby Lightning Frame
+        g.roundRect(x - 3, y - 3, w + 6, h + 6, 14);
+        g.fill({ color: 0xff002b, alpha: 0.6 });
+
+        g.roundRect(x, y, w, h, 11);
+        g.fill({ color: 0xd61c24, alpha: 0.35 });
+        g.stroke({ width: 5.5, color: 0xff2a3b, alpha: 1.0 });
+
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.stroke({ width: 2.5, color: 0xffffff, alpha: 0.95 });
+      } else if (isHighPay) {
+        // High Pays (Springbok Gold & Ruby Frame)
+        g.roundRect(x - 3, y - 3, w + 6, h + 6, 14);
+        g.fill({ color: 0xffd700, alpha: 0.45 });
+
+        g.roundRect(x, y, w, h, 11);
+        g.fill({ color: 0xff4d5e, alpha: 0.28 });
+        g.stroke({ width: 4.5, color: 0xffd700, alpha: 0.98 });
+
+        g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
+        g.stroke({ width: 1.8, color: 0xffffff, alpha: 0.92 });
+      } else {
+        // Standard Royal Win Frame (Neon Crimson & Ice White)
+        g.roundRect(x - 2, y - 2, w + 4, h + 4, 12);
+        g.fill({ color: 0xd61c24, alpha: 0.38 });
+
         g.roundRect(x, y, w, h, 10);
-        g.fill({ color: 0xff2a3b, alpha: 0.25 });
+        g.fill({ color: 0xff2a3b, alpha: 0.22 });
         g.stroke({ width: 4.5, color: 0xff2a3b, alpha: 0.98 });
 
-        // Inner white highlight stroke
         g.roundRect(x + 3, y + 3, w - 6, h - 6, 8);
         g.stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
       }
 
       cellCont.addChild(g);
       this.frames.push(g);
+
+      // Corner Diamond Sparkle Stars
+      const corners = [
+        [x + 4, y + 4],
+        [x + w - 4, y + 4],
+        [x + 4, y + h - 4],
+        [x + w - 4, y + h - 4],
+      ];
+      corners.forEach(([cx, cy], cIdx) => {
+        const starG = new Graphics();
+        starG.star(0, 0, 4, 5, 2.5);
+        starG.fill({ color: isScatter ? 0x00ffff : isCheetah ? 0xffd700 : 0xffffff });
+        starG.x = cx;
+        starG.y = cy;
+        cellCont.addChild(starG);
+        this.cornerStars.push({
+          g: starG,
+          x: cx,
+          y: cy,
+          rotSpeed: (cIdx % 2 === 0 ? 1 : -1) * (0.05 + Math.random() * 0.04),
+          scaleBase: 0.7 + Math.random() * 0.4,
+        });
+      });
 
       // Shimmer Mask and Sheen Ray layer
       const maskG = new Graphics();
@@ -687,68 +1355,96 @@ export class WinHighlighter {
       this.container.addChild(cellCont);
     }
 
-    // High energy pulse, cheetah solar flare rotation, and diagonal shimmer sweep animation
+    // High energy pulse, cheetah solar flare, scatter diamond aura, and shimmering light sweeps
     let step = 0;
     let sweepPos = -0.5;
 
     const pulse = () => {
       step += 0.12;
-      sweepPos += 0.038;
+      sweepPos += 0.042;
       if (sweepPos > 1.8) sweepPos = -0.6;
 
-      const alpha = 0.75 + 0.25 * Math.sin(step * 1.5);
+      const alpha = 0.78 + 0.22 * Math.sin(step * 1.6);
       this.frames.forEach((f) => {
         f.alpha = alpha;
+      });
+
+      // Animate corner twinkle stars
+      this.cornerStars.forEach((star) => {
+        star.g.rotation += star.rotSpeed;
+        const starScale = star.scaleBase * (0.85 + 0.3 * Math.sin(step * 3));
+        star.g.scale.set(starScale);
       });
 
       // Animate cheetah golden radiant solar flare & spinning glow bursts
       this.cheetahAuras.forEach(({ g, x, y, w, h }) => {
         g.clear();
-        const pulseScale = 1 + 0.15 * Math.sin(step * 2.2);
-        const flareR = Math.min(w, h) * 0.45 * pulseScale;
+        const pulseScale = 1 + 0.18 * Math.sin(step * 2.2);
+        const flareR = Math.min(w, h) * 0.46 * pulseScale;
 
         // Radiating pulse ring
-        g.circle(x, y, flareR + 6);
-        g.fill({ color: 0xffaa00, alpha: 0.35 + 0.2 * Math.cos(step * 2) });
+        g.circle(x, y, flareR + 8);
+        g.fill({ color: 0xffaa00, alpha: 0.38 + 0.2 * Math.cos(step * 2) });
 
         // 8 Rotating golden sunburst rays
         const rayCount = 8;
-        const angleOffset = step * 0.8;
+        const angleOffset = step * 0.85;
         for (let i = 0; i < rayCount; i++) {
           const angle = angleOffset + (i * Math.PI * 2) / rayCount;
-          const r1 = flareR * 0.7;
-          const r2 = flareR * 1.25;
+          const r1 = flareR * 0.65;
+          const r2 = flareR * 1.35;
           const x1 = x + Math.cos(angle) * r1;
           const y1 = y + Math.sin(angle) * r1;
           const x2 = x + Math.cos(angle) * r2;
           const y2 = y + Math.sin(angle) * r2;
           g.moveTo(x1, y1);
           g.lineTo(x2, y2);
-          g.stroke({ width: 3, color: 0xffd700, alpha: 0.75 });
+          g.stroke({ width: 3.5, color: 0xffd700, alpha: 0.85 });
         }
       });
 
-      // Animate light sweep across each symbol cell
+      // Animate Diamond Scatter crystal rotating aura
+      this.scatterAuras.forEach(({ g, x, y, w, h }) => {
+        g.clear();
+        const pulseScale = 1 + 0.14 * Math.cos(step * 2.5);
+        const ringR = Math.min(w, h) * 0.44 * pulseScale;
+
+        g.circle(x, y, ringR + 6);
+        g.stroke({ width: 3, color: 0x00e5ff, alpha: 0.75 + 0.25 * Math.sin(step * 3) });
+
+        // 4 Rotating Diamond Prisms
+        const rayCount = 4;
+        const angleOffset = -step * 0.6;
+        for (let i = 0; i < rayCount; i++) {
+          const angle = angleOffset + (i * Math.PI * 2) / rayCount;
+          const px = x + Math.cos(angle) * (ringR * 0.9);
+          const py = y + Math.sin(angle) * (ringR * 0.9);
+          g.star(px, py, 4, 6, 3);
+          g.fill({ color: 0xffffff, alpha: 0.9 });
+        }
+      });
+
+      // Animate multi-beam light sweep across each symbol cell
       this.shimmers.forEach(({ sheen, x, y, w, h }) => {
         sheen.clear();
         if (sweepPos >= -0.3 && sweepPos <= 1.5) {
           const sweepX = x + sweepPos * w;
 
-          // Outer shimmer beam
+          // Outer sheen beam
           sheen.moveTo(sweepX, y);
-          sheen.lineTo(sweepX + 30, y);
-          sheen.lineTo(sweepX + 10, y + h);
-          sheen.lineTo(sweepX - 20, y + h);
+          sheen.lineTo(sweepX + 34, y);
+          sheen.lineTo(sweepX + 12, y + h);
+          sheen.lineTo(sweepX - 22, y + h);
           sheen.closePath();
-          sheen.fill({ color: 0xffe6e8, alpha: 0.45 });
+          sheen.fill({ color: 0xffffff, alpha: 0.4 });
 
           // Core bright sheen beam
-          sheen.moveTo(sweepX + 8, y);
-          sheen.lineTo(sweepX + 22, y);
-          sheen.lineTo(sweepX + 2, y + h);
-          sheen.lineTo(sweepX - 12, y + h);
+          sheen.moveTo(sweepX + 10, y);
+          sheen.lineTo(sweepX + 24, y);
+          sheen.lineTo(sweepX + 4, y + h);
+          sheen.lineTo(sweepX - 10, y + h);
           sheen.closePath();
-          sheen.fill({ color: 0xffffff, alpha: 0.95 });
+          sheen.fill({ color: 0xffffff, alpha: 0.98 });
         }
       });
 
@@ -758,13 +1454,15 @@ export class WinHighlighter {
   }
 }
 
-/** Draw laser payline connectors across winning symbols */
+/** Draw laser payline connectors across winning symbols with animated traveling energy */
 export class PaylineOverlay {
   readonly container = new Container();
   private cellW: number;
   private cellH: number;
   private currentLineWins: LineWin[] = [];
   private currentPaylines: number[][] = [];
+  private animTimer: number | null = null;
+  private pulseStep = 0;
 
   constructor(cellW: number, cellH: number) {
     this.cellW = cellW;
@@ -782,52 +1480,111 @@ export class PaylineOverlay {
   clear() {
     this.currentLineWins = [];
     this.currentPaylines = [];
+    if (this.animTimer) {
+      cancelAnimationFrame(this.animTimer);
+      this.animTimer = null;
+    }
     this.container.removeChildren();
   }
 
   drawLines(lineWins: LineWin[], paylines: number[][]) {
+    this.clear();
     this.currentLineWins = lineWins;
     this.currentPaylines = paylines;
-    this.container.removeChildren();
     if (!lineWins || lineWins.length === 0) return;
 
-    // Palette of Red, White, and Obsidian accents
-    const colors = [0xff2a3b, 0xffffff, 0xd61c24, 0xff4d5e, 0xffffff];
+    // Distinct vibrant neon palettes for paylines
+    const colors = [
+      0xffd700, // Gold
+      0xff2a3b, // Crimson
+      0x00e5ff, // Cyan
+      0x00e676, // Emerald
+      0xff4081, // Protea Pink
+      0xff9100, // Amber
+      0xffffff, // Diamond White
+    ];
 
-    lineWins.forEach((win, idx) => {
-      const lineCoords = paylines[win.paylineIndex];
-      if (!lineCoords) return;
+    const render = () => {
+      this.pulseStep += 0.08;
+      this.container.removeChildren();
 
-      const g = new Graphics();
-      const color = colors[idx % colors.length];
+      lineWins.forEach((win, idx) => {
+        const lineCoords = paylines[win.paylineIndex];
+        if (!lineCoords) return;
 
-      // Draw laser glow line
-      const startX = 0 * this.cellW + this.cellW / 2;
-      const startY = lineCoords[0] * this.cellH + this.cellH / 2;
+        const g = new Graphics();
+        const color = colors[idx % colors.length];
 
-      g.moveTo(startX, startY);
+        const startX = 0 * this.cellW + this.cellW / 2;
+        const startY = lineCoords[0] * this.cellH + this.cellH / 2;
 
-      // Node marker at reel 0
-      g.circle(startX, startY, 7);
-      g.fill(color);
-      g.stroke({ width: 2, color: 0xffffff });
+        // 1. Soft glowing outer beam
+        g.moveTo(startX, startY);
+        for (let r = 1; r < win.count; r++) {
+          const row = lineCoords[r];
+          const px = r * this.cellW + this.cellW / 2;
+          const py = row * this.cellH + this.cellH / 2;
+          g.lineTo(px, py);
+        }
+        const pulseAlpha = 0.8 + 0.2 * Math.sin(this.pulseStep * 2 + idx);
+        g.stroke({ width: 8, color, alpha: pulseAlpha * 0.45 });
 
-      for (let r = 1; r < win.count; r++) {
-        const row = lineCoords[r];
-        const px = r * this.cellW + this.cellW / 2;
-        const py = row * this.cellH + this.cellH / 2;
+        // 2. Core crisp laser beam
+        g.moveTo(startX, startY);
+        for (let r = 1; r < win.count; r++) {
+          const row = lineCoords[r];
+          const px = r * this.cellW + this.cellW / 2;
+          const py = row * this.cellH + this.cellH / 2;
+          g.lineTo(px, py);
+        }
+        g.stroke({ width: 4.5, color: 0xffffff, alpha: 0.95 });
 
-        g.lineTo(px, py);
+        // 3. Glowing vertex nodes & pulse rings
+        for (let r = 0; r < win.count; r++) {
+          const row = lineCoords[r];
+          const px = r * this.cellW + this.cellW / 2;
+          const py = row * this.cellH + this.cellH / 2;
 
-        // Node marker at each reel
-        g.circle(px, py, 7);
-        g.fill(color);
-        g.stroke({ width: 2, color: 0xffffff });
-      }
+          const nodePulse = 1 + 0.25 * Math.sin(this.pulseStep * 3 + r * 0.5);
 
-      g.stroke({ width: 6, color, alpha: 0.95 });
-      this.container.addChild(g);
-    });
+          // Outer halo
+          g.circle(px, py, 9 * nodePulse);
+          g.fill({ color, alpha: 0.55 });
+
+          // Center jewel node
+          g.circle(px, py, 5.5);
+          g.fill(0xffffff);
+          g.stroke({ width: 2, color });
+        }
+
+        // 4. Traveling energy pulse along line
+        const totalSegments = win.count - 1;
+        if (totalSegments > 0) {
+          const travelPos = (this.pulseStep * 0.8 + idx * 0.3) % totalSegments;
+          const segIdx = Math.floor(travelPos);
+          const segFraction = travelPos - segIdx;
+
+          const r1 = segIdx;
+          const r2 = segIdx + 1;
+          const x1 = r1 * this.cellW + this.cellW / 2;
+          const y1 = lineCoords[r1] * this.cellH + this.cellH / 2;
+          const x2 = r2 * this.cellW + this.cellW / 2;
+          const y2 = lineCoords[r2] * this.cellH + this.cellH / 2;
+
+          const energyX = x1 + (x2 - x1) * segFraction;
+          const energyY = y1 + (y2 - y1) * segFraction;
+
+          g.star(energyX, energyY, 4, 8, 4);
+          g.fill({ color: 0xffffff, alpha: 1.0 });
+        }
+
+        this.container.addChild(g);
+      });
+
+      this.animTimer = requestAnimationFrame(render);
+    };
+
+    render();
   }
 }
 
@@ -2027,7 +2784,7 @@ export class BigWinModal {
   }
 }
 
-/** Floating "+R10.00" animated popups on winning reel coordinates */
+/** Floating "+R10.00" animated popups on winning reel coordinates with luxury casino pill styling */
 export class FloatingWinManager {
   readonly container = new Container();
 
@@ -2035,63 +2792,131 @@ export class FloatingWinManager {
     this.container.removeChildren();
   }
 
-  spawnPopup(x: number, y: number, textString: string) {
+  spawnPopup(x: number, y: number, textString: string, isScatter = false) {
     const pop = new Container();
     pop.x = x;
     pop.y = y;
-    pop.scale.set(0.4);
+    pop.scale.set(0.3);
     pop.alpha = 0;
 
     const bg = new Graphics();
-    bg.roundRect(-45, -16, 90, 32, 16);
-    bg.fill({ color: 0x061e12, alpha: 0.95 });
-    bg.stroke({ width: 2, color: 0xffd700, alpha: 0.95 });
+    const w = 100;
+    const h = 34;
+
+    // Drop shadow
+    bg.roundRect(-w / 2 - 3, -h / 2 - 2, w + 6, h + 6, 17);
+    bg.fill({ color: 0x000000, alpha: 0.65 });
+
+    // Metallic gold / obsidian core badge
+    bg.roundRect(-w / 2, -h / 2, w, h, 16);
+    bg.fill({ color: isScatter ? 0x002c38 : 0x1f0b00, alpha: 0.96 });
+    bg.stroke({ width: 2.5, color: isScatter ? 0x00e5ff : 0xffd700, alpha: 1.0 });
+
+    // Inner bevel highlight
+    bg.roundRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 14);
+    bg.stroke({ width: 1, color: 0xffffff, alpha: 0.75 });
+
+    // Corner diamond pips
+    bg.star(-w / 2 + 10, 0, 4, 4, 2);
+    bg.fill({ color: isScatter ? 0x00ffff : 0xffd700 });
+    bg.star(w / 2 - 10, 0, 4, 4, 2);
+    bg.fill({ color: isScatter ? 0x00ffff : 0xffd700 });
+
     pop.addChild(bg);
 
     const txt = new Text({
       text: textString,
       style: {
         fontFamily: "Rajdhani, Inter, Arial, sans-serif",
-        fontSize: 18,
-        fontWeight: "700",
-        fill: "#ffd700",
+        fontSize: 19,
+        fontWeight: "800",
+        fill: isScatter ? "#00ffff" : "#ffd700",
         stroke: { color: 0x000000, width: 3 },
         align: "center",
+        dropShadow: {
+          alpha: 0.8,
+          blur: 4,
+          color: isScatter ? 0x0088aa : 0xaa5500,
+          distance: 2,
+          angle: Math.PI / 4,
+        },
       },
     });
     txt.anchor.set(0.5);
     pop.addChild(txt);
 
+    // Micro sparkles around popup
+    for (let i = 0; i < 4; i++) {
+      const spark = new Graphics();
+      spark.star(0, 0, 4, 5, 2.5);
+      spark.fill(isScatter ? 0xffffff : 0xffd700);
+      spark.x = (Math.random() - 0.5) * 80;
+      spark.y = (Math.random() - 0.5) * 26;
+      pop.addChild(spark);
+
+      gsap.to(spark, {
+        scale: 1.6,
+        alpha: 0,
+        x: spark.x + (Math.random() - 0.5) * 24,
+        y: spark.y - 18,
+        duration: 0.8,
+        ease: "power1.out",
+      });
+    }
+
     this.container.addChild(pop);
 
     // GSAP Choreographed Floating Win Bubble Animation
-    gsap.timeline({
-      onComplete: () => {
-        this.container.removeChild(pop);
-        pop.destroy();
-      },
-    })
-    .to(pop, {
-      alpha: 1,
-      duration: 0.15,
-      ease: "power2.out",
-    })
-    .to(pop.scale, {
-      x: 1.15,
-      y: 1.15,
-      duration: 0.35,
-      ease: "back.out(2.0)",
-    }, "<")
-    .to(pop, {
-      y: y - 42,
-      duration: 1.1,
-      ease: "power1.out",
-    }, "<")
-    .to(pop, {
-      alpha: 0,
-      duration: 0.4,
-      ease: "power2.in",
-    }, "-=0.35");
+    gsap
+      .timeline({
+        onComplete: () => {
+          this.container.removeChild(pop);
+          pop.destroy();
+        },
+      })
+      .to(pop, {
+        alpha: 1,
+        duration: 0.15,
+        ease: "power2.out",
+      })
+      .to(
+        pop.scale,
+        {
+          x: 1.18,
+          y: 1.18,
+          duration: 0.32,
+          ease: "back.out(2.4)",
+        },
+        "<"
+      )
+      .to(
+        pop,
+        {
+          y: y - 50,
+          duration: 1.25,
+          ease: "power1.out",
+        },
+        "<"
+      )
+      .to(
+        pop.scale,
+        {
+          x: 1.0,
+          y: 1.0,
+          duration: 0.4,
+          ease: "sine.inOut",
+        },
+        "-=0.7"
+      )
+      .to(
+        pop,
+        {
+          alpha: 0,
+          duration: 0.35,
+          ease: "power2.in",
+        },
+        "-=0.35"
+      );
   }
 }
 

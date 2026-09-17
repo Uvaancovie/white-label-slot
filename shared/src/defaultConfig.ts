@@ -72,7 +72,7 @@ export const defaultGameConfig: GameConfig = {
     freeSpinsAwarded: 10,
     freeSpinMultiplier: 1,
   },
-  rtpLabel: "96.1% (demo math)",
+  rtpLabel: "97.0% (House Edge: 3.0%)",
   paytable: [
     {
       symbol: "wild",
@@ -80,23 +80,23 @@ export const defaultGameConfig: GameConfig = {
     },
     {
       symbol: "springbok",
-      ofAKind: { 3: 5, 4: 20, 5: 100 },
+      ofAKind: { 3: 5.2, 4: 20, 5: 100 },
     },
     {
       symbol: "cheetah",
-      ofAKind: { 3: 4.5, 4: 18, 5: 85 },
+      ofAKind: { 3: 4.6, 4: 18, 5: 85 },
     },
     {
       symbol: "protea",
-      ofAKind: { 3: 4, 4: 15, 5: 75 },
+      ofAKind: { 3: 4.1, 4: 15, 5: 75 },
     },
     {
       symbol: "gold",
-      ofAKind: { 3: 3, 4: 12, 5: 50 },
+      ofAKind: { 3: 3.1, 4: 12, 5: 50 },
     },
     {
       symbol: "drum",
-      ofAKind: { 3: 2, 4: 8, 5: 30 },
+      ofAKind: { 3: 2.1, 4: 8, 5: 30 },
     },
     {
       symbol: "A",
